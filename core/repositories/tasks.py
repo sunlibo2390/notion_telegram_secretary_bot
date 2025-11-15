@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from uuid import uuid4
 
+from dataclasses import asdict
+
 from core.domain import Task
 from data_pipeline.storage import paths
 
@@ -59,8 +61,13 @@ class TaskRepository:
         if not self._custom_loaded:
             return
         with open(self._custom_path, "w", encoding="utf-8") as file:
+            payload = {}
+            for task in self._custom_cache.values():
+                data = asdict(task)
+                data.pop("id", None)
+                payload[task.id] = data
             json.dump(
-                {task.id: task.__dict__ for task in self._custom_cache.values()},
+                payload,
                 file,
                 ensure_ascii=False,
                 indent=4,
