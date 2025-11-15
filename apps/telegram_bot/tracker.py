@@ -39,6 +39,8 @@ class TrackerEntry:
     waiting: bool = False
     start_time: datetime = field(default_factory=_utcnow)
     interval_seconds: int = 1500
+    context: str = "task"
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 class TaskTracker:
@@ -73,6 +75,8 @@ class TaskTracker:
         interval_minutes: Optional[int] = None,
         update_action_state: bool = True,
         notify_user: bool = True,
+        context: str = "task",
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         custom_interval = None
         if interval_minutes:
@@ -87,6 +91,8 @@ class TaskTracker:
                 task_url=task.page_url or f"https://www.notion.so/{task.id.replace('-', '')}",
                 timer=timer,
                 interval_seconds=interval,
+                context=context,
+                metadata=metadata or {},
             )
             self._entries[chat_id] = entry
             timer.start()
@@ -140,6 +146,32 @@ class TaskTracker:
         )
         self._sync_action_state(chat_id, "unknown", has_tracker=False)
         return response
+
+    def request_feedback(
+        self,
+        chat_id: int,
+        task: Task,
+        prompt: str,
+        context: str = "follow_up",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        with self._lock:
+            self._cancel(chat_id)
+            entry = TrackerEntry(
+                task_id=task.id,
+                task_name=task.name,
+                task_url=task.page_url or f"https://www.notion.so/{task.id.replace('-', '')}",
+                timer=None,
+                waiting=True,
+                interval_seconds=self._follow_up_interval,
+                context=context,
+                metadata=metadata or {},
+            )
+            if self._follow_up_interval > 0:
+                entry.timer = self._timer_factory(self._follow_up_interval, self._send_reminder, (chat_id,))
+                entry.timer.start()
+            self._entries[chat_id] = entry
+        self._client.send_message(chat_id=chat_id, text=prompt)
 
     def stop_tracking(self, chat_id: int, ensure_name: str | None = None) -> Optional[TrackerEntry]:
         with self._lock:

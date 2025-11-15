@@ -97,12 +97,28 @@ class TaskSessionMonitor:
                 self._cancel_locked(window_id)
             return
         active = self._active_sessions.pop(window_id, None)
-        if active and self._tracker:
-            self._tracker.stop_tracking(
-                active.get("chat_id", window.chat_id),
-                ensure_name=active.get("task_name"),
-            )
+        active_task = None
+        if active:
+            active_task = active.get("task")
+            if self._tracker:
+                self._tracker.stop_tracking(
+                    active.get("chat_id", window.chat_id),
+                    ensure_name=active.get("task_name"),
+                )
         self._notify(window)
+        follow_up_task = active_task or self._resolve_task(window)
+        if self._tracker and follow_up_task:
+            prompt = (
+                f"⌛ {follow_up_task.name} 的时间块已结束。\n"
+                "请说明是否完成、遇到了哪些问题，以及下一步安排，我将根据反馈继续提醒。"
+            )
+            self._tracker.request_feedback(
+                window.chat_id,
+                follow_up_task,
+                prompt=prompt,
+                context="block_follow_up",
+                metadata={"window_id": window.id},
+            )
         self._rest_service.delete_window(window_id)
         with self._lock:
             self._cancel_locked(window_id)
@@ -127,7 +143,11 @@ class TaskSessionMonitor:
                 text="⚠️ 未能识别时间块目标任务，无法自动开启跟踪。",
             )
             return
-        self._active_sessions[window.id] = {"chat_id": window.chat_id, "task_name": task.name}
+        self._active_sessions[window.id] = {
+            "chat_id": window.chat_id,
+            "task_name": task.name,
+            "task": task,
+        }
         if self._tracker:
             self._tracker.start_tracking(
                 window.chat_id,
