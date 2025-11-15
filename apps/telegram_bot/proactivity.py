@@ -216,7 +216,7 @@ class ProactivityService:
             return due
         due_ref = due if due.tzinfo else due.replace(tzinfo=timezone.utc)
         active_now = self._rest_service.current_window(chat_id, now)
-        if active_now and now <= active_now.end and due_ref <= active_now.end:
+        if active_now and now <= active_now.end:
             return active_now.end
         window_at_due = self._rest_service.current_window(chat_id, due_ref)
         if window_at_due and window_at_due.end > due_ref:
