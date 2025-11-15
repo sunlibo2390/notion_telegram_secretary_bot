@@ -137,14 +137,25 @@ class UserStateService:
                 state.action_prompted_at = None
                 changed = True
         else:
-            if has_active_tracker and state.action == "休息中":
-                state.action = "推进中"
-                state.action_updated_at = now
-                state.action_prompted_at = None
-                changed = True
-            if (has_active_tracker is False or has_active_tracker is None) and state.action == "推进中":
+            if state.action == "休息中":
+                if has_active_tracker:
+                    state.action = "推进中"
+                    state.action_updated_at = now
+                    state.action_prompted_at = None
+                    changed = True
+                else:
+                    state.action = "unknown"
+                    state.action_updated_at = now
+                    state.action_prompted_at = None
+                    changed = True
+            elif state.action == "推进中" and not has_active_tracker:
                 state.action = "unknown"
                 state.action_updated_at = None
+                state.action_prompted_at = None
+                changed = True
+            elif has_active_tracker and state.action == "unknown":
+                state.action = "推进中"
+                state.action_updated_at = now
                 state.action_prompted_at = None
                 changed = True
         if changed:
