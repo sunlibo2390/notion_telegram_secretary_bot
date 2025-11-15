@@ -57,6 +57,7 @@ class ProactivitySettings:
     state_stale_seconds: int
     state_prompt_cooldown_seconds: int
     question_follow_up_seconds: int
+    state_unknown_retry_seconds: int
 
 
 @dataclass(frozen=True)
@@ -224,6 +225,10 @@ def load_settings(
         question_follow_up_seconds=int(
             proactivity_cfg.get("question_follow_up_seconds")
             or os.getenv("PROACTIVITY_QUESTION_FOLLOW_UP_SECONDS", "600")
+        ),
+        state_unknown_retry_seconds=int(
+            proactivity_cfg.get("state_unknown_retry_seconds")
+            or os.getenv("PROACTIVITY_STATE_UNKNOWN_RETRY_SECONDS", "120")
         ),
     )
 

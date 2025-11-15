@@ -41,6 +41,7 @@ class ProactivityService:
         state_stale_seconds: int = 3600,
         state_prompt_cooldown_seconds: int = 600,
         follow_up_seconds: int = 600,
+        state_unknown_retry_seconds: int = 120,
         tracker: TaskTracker | None = None,
     ) -> None:
         self._state_service = state_service
@@ -50,6 +51,7 @@ class ProactivityService:
         self._state_stale_seconds = max(300, state_stale_seconds)
         self._state_prompt_cooldown = max(300, state_prompt_cooldown_seconds)
         self._follow_up_seconds = max(60, follow_up_seconds)
+        self._unknown_retry_seconds = max(60, state_unknown_retry_seconds)
         self._timers: Dict[int, ChatTimers] = {}
         self._lock = threading.Lock()
         self._event_handler: Optional[Callable[[int, Dict[str, Any]], None]] = None
@@ -141,10 +143,11 @@ class ProactivityService:
             },
         }
 
-    def _schedule_state_check(self, chat_id: int, timers: ChatTimers) -> None:
+    def _schedule_state_check(self, chat_id: int, timers: ChatTimers, delay: Optional[int] = None) -> None:
         if timers.state_timer:
             timers.state_timer.cancel()
-        timer = self._timer_factory(self._state_check_seconds, self._handle_state_check, (chat_id,))
+        effective_delay = delay or self._state_check_seconds
+        timer = self._timer_factory(effective_delay, self._handle_state_check, (chat_id,))
         timers.state_timer = timer
         timer.start()
 
@@ -153,9 +156,10 @@ class ProactivityService:
             timers = self._timers.get(chat_id)
             if not timers:
                 return
-            self._schedule_state_check(chat_id, timers)
         now = _utcnow()
         if self._is_resting(chat_id, now):
+            with self._lock:
+                self._schedule_state_check(chat_id, timers)
             return
         state = self._state_service.get_state(
             chat_id,
@@ -187,6 +191,11 @@ class ProactivityService:
             )
         for event in events:
             self._event_handler(chat_id, event)
+        next_delay = self._state_check_seconds
+        if action_pending or mental_pending:
+            next_delay = self._unknown_retry_seconds
+        with self._lock:
+            self._schedule_state_check(chat_id, timers, delay=next_delay)
 
     def _state_due(
         self,
@@ -205,11 +214,14 @@ class ProactivityService:
         if due.tzinfo is None:
             due = due.replace(tzinfo=timezone.utc)
         due = self._adjust_due_for_rest(chat_id, due, now)
+        pending = value == "unknown" or not updated_at or now >= threshold
+        cooldown_seconds = self._state_prompt_cooldown
+        if pending:
+            cooldown_seconds = self._unknown_retry_seconds
         if prompted_at:
-            cooldown_due = prompted_at + timedelta(seconds=self._state_prompt_cooldown)
+            cooldown_due = prompted_at + timedelta(seconds=cooldown_seconds)
             if due < cooldown_due:
                 due = cooldown_due
-        pending = value == "unknown" or not updated_at or now >= threshold
         if pending and due < now:
             due = now
         return pending, due

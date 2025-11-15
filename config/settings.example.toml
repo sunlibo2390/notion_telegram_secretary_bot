@@ -31,3 +31,4 @@ state_check_seconds = 300              # 状态巡检间隔
 state_stale_seconds = 3600            # 超过 1 小时未更新状态就主动询问
 state_prompt_cooldown_seconds = 600   # 状态询问的冷却时间
 question_follow_up_seconds = 600      # Agent 提问后未回复的追问间隔（默认 10 分钟）
+state_unknown_retry_seconds = 120     # 状态为 unknown 或过期时的追问间隔

@@ -108,6 +108,7 @@ def build_runtime() -> BotRuntime:
         state_stale_seconds=settings.proactivity.state_stale_seconds,
         state_prompt_cooldown_seconds=settings.proactivity.state_prompt_cooldown_seconds,
         follow_up_seconds=settings.proactivity.question_follow_up_seconds,
+        state_unknown_retry_seconds=settings.proactivity.state_unknown_retry_seconds,
         tracker=tracker,
     )
     llm_agent = None
