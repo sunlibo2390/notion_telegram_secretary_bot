@@ -73,6 +73,7 @@ notion_secretary/
   - `/logs update <序号> <内容>`：更新指定日志的内容（可附 `任务 XXX：...` 自动重绑任务）。
   - `/update`：立即从 Notion 拉取项目/任务/日志，刷新本地缓存。
 - **时间块管理**：`/blocks` 统一展示「休息」与「任务专注」时间段；对 Bot 说 “14:00-16:00 专注 Magnet 代码” 会创建任务窗口，并自动开启该任务的追踪，到点提醒你收尾，避免任务无限拖延。
+- **状态管控**：行动状态只会在“处于任务时间块 + 正在跟踪”时成为“推进中”，休息结束或任务块结束后自动回到 `unknown`。当行动/心理状态为 `unknown` 或过期时，每隔 `state_unknown_retry_seconds`（默认 2 分钟）会持续追问。
 - **日志智能**：Agent 触发 `record_log` 工具时会结合当前对话与近期历史自动匹配任务；若需要修订，可使用 `/logs update` 或 `update_log` 工具重新绑定。
 - **本地记忆**：手动创建的任务写入 `json/agent_tasks.json`，日志写入 `json/agent_logs.json`，即使执行 `/update` 或重新跑 `scripts/sync_databases.py` 也不会被覆盖。
 - **多渠道同步**：在 `config/settings.toml` 中配置 `[wecom].webhook_url` 后，Agent 的每条回复都会镜像到对应的企业微信机器人，方便在其他终端实时关注。
@@ -142,6 +143,7 @@ notion_secretary/
 
 - **统一时区**：Agent 面向用户展示的所有时间（日志、提醒、`/blocks`、`/next` 等）均转换为北京时间（UTC+8），与代码中的 `core/utils/timezone.py` 保持一致，避免“本地时间/服务器时间”混淆。
 - **休息与勿扰**：通过 `/blocks` 或 LLM 的 `rest_*` 工具创建的窗口会暂停主动提醒、追问和跟踪计时，恢复后自动顺延。
+- **状态追问**：`state_unknown_retry_seconds` 控制 `unknown` 状态下的追问频率（默认 120 秒），即使 `state_check_seconds` 较大，也会在该间隔内反复催促，直到用户给出有效状态。
 
 ### `[proactivity]` 配置项
 
