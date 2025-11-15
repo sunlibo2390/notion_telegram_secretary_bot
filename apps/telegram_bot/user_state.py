@@ -47,6 +47,7 @@ class UserStateService:
         chat_id: int,
         has_active_tracker: Optional[bool] = None,
         is_resting: Optional[bool] = None,
+        has_task_block: Optional[bool] = None,
     ) -> UserState:
         raw = self._states.get(str(chat_id), {})
         state = UserState(
@@ -57,8 +58,14 @@ class UserStateService:
             action_prompted_at=self._parse_dt(raw.get("action_prompted_at")),
             mental_prompted_at=self._parse_dt(raw.get("mental_prompted_at")),
         )
-        if has_active_tracker is not None or is_resting is not None:
-            state = self._normalize_action(chat_id, state, has_active_tracker, is_resting)
+        if has_active_tracker is not None or is_resting is not None or has_task_block is not None:
+            state = self._normalize_action(
+                chat_id,
+                state,
+                has_active_tracker,
+                is_resting,
+                has_task_block,
+            )
         return state
 
     def update_state(
@@ -69,11 +76,13 @@ class UserStateService:
         mental: Optional[str] = None,
         has_active_tracker: Optional[bool] = None,
         is_resting: Optional[bool] = None,
+        has_task_block: Optional[bool] = None,
     ) -> UserState:
         state = self.get_state(
             chat_id,
             has_active_tracker=has_active_tracker,
             is_resting=is_resting,
+            has_task_block=has_task_block,
         )
         now = _utcnow()
         changed = False
@@ -96,6 +105,7 @@ class UserStateService:
                 state,
                 has_active_tracker,
                 is_resting,
+                has_task_block,
             )
         if changed:
             self._persist(chat_id, state)
@@ -127,6 +137,7 @@ class UserStateService:
         state: UserState,
         has_active_tracker: Optional[bool],
         is_resting: Optional[bool],
+        has_task_block: Optional[bool],
     ) -> UserState:
         changed = False
         now = _utcnow()
@@ -137,25 +148,16 @@ class UserStateService:
                 state.action_prompted_at = None
                 changed = True
         else:
+            task_block_active = bool(has_task_block)
+            tracker_active = bool(has_active_tracker)
             if state.action == "休息中":
-                if has_active_tracker:
-                    state.action = "推进中"
-                    state.action_updated_at = now
-                    state.action_prompted_at = None
-                    changed = True
-                else:
-                    state.action = "unknown"
-                    state.action_updated_at = now
-                    state.action_prompted_at = None
-                    changed = True
-            elif state.action == "推进中" and not has_active_tracker:
                 state.action = "unknown"
-                state.action_updated_at = None
+                state.action_updated_at = now
                 state.action_prompted_at = None
                 changed = True
-            elif has_active_tracker and state.action == "unknown":
-                state.action = "推进中"
-                state.action_updated_at = now
+            if state.action == "推进中" and (not task_block_active or not tracker_active):
+                state.action = "unknown"
+                state.action_updated_at = None
                 state.action_prompted_at = None
                 changed = True
         if changed:

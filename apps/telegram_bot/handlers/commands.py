@@ -386,10 +386,14 @@ class CommandRouter:
             return
         has_tracker = bool(self._tracker and self._tracker.list_active(chat_id))
         is_resting = self._rest_service.is_resting(chat_id) if self._rest_service else None
+        task_block_active = (
+            self._rest_service.has_active_task_block(chat_id) if self._rest_service else None
+        )
         state = self._user_state.get_state(
             chat_id,
             has_active_tracker=has_tracker,
             is_resting=is_resting,
+            has_task_block=task_block_active,
         )
         lines = [
             "当前状态：",

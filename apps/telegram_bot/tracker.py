@@ -73,7 +73,7 @@ class TaskTracker:
         chat_id: int,
         task: Task,
         interval_minutes: Optional[int] = None,
-        update_action_state: bool = True,
+        update_action_state: bool = False,
         notify_user: bool = True,
         context: str = "task",
         metadata: Optional[Dict[str, Any]] = None,
@@ -225,14 +225,19 @@ class TaskTracker:
     def _sync_action_state(self, chat_id: int, action: str, has_tracker: bool) -> None:
         if not self._user_state:
             return
-        is_resting = False
-        if self._rest_service:
-            is_resting = self._rest_service.is_resting(chat_id, _utcnow())
+        now = _utcnow()
+        is_resting = self._rest_service.is_resting(chat_id, now) if self._rest_service else False
+        task_block_active = (
+            self._rest_service.has_active_task_block(chat_id, now) if self._rest_service else False
+        )
+        if action == "推进中" and not task_block_active:
+            return
         self._user_state.update_state(
             chat_id,
             action=action,
             has_active_tracker=has_tracker,
             is_resting=is_resting,
+            has_task_block=task_block_active,
         )
 
     def defer_for_rest(self, chat_id: int, start: datetime, end: datetime) -> None:

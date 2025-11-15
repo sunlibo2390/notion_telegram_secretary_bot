@@ -92,10 +92,12 @@ class ProactivityService:
     def describe_next_prompts(self, chat_id: int) -> Dict[str, Any]:
         now = _utcnow()
         is_resting = self._is_resting(chat_id, now)
+        task_block_active = self._rest_service.has_active_task_block(chat_id, now) if self._rest_service else None
         state = self._state_service.get_state(
             chat_id,
             has_active_tracker=self._has_active_tracker(chat_id),
             is_resting=is_resting,
+            has_task_block=task_block_active,
         )
         action_pending, action_due = self._state_due(chat_id, state.action, state.action_updated_at, state.action_prompted_at, now)
         mental_pending, mental_due = self._state_due(chat_id, state.mental, state.mental_updated_at, state.mental_prompted_at, now)
@@ -159,6 +161,7 @@ class ProactivityService:
             chat_id,
             has_active_tracker=self._has_active_tracker(chat_id),
             is_resting=False,
+            has_task_block=self._rest_service.has_active_task_block(chat_id, now) if self._rest_service else None,
         )
         events: List[Dict[str, Any]] = []
         action_pending, _ = self._state_due(chat_id, state.action, state.action_updated_at, state.action_prompted_at, now)

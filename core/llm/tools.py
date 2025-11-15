@@ -329,8 +329,14 @@ def build_default_tools(
             return {"status": "error", "message": "action or mental required"}
         has_tracker = bool(tracker and tracker.list_active(chat_id)) if tracker else False
         is_resting = bool(rest_service and rest_service.is_resting(chat_id)) if rest_service else False
-        if action == "推进中" and not has_tracker:
-            return {"status": "error", "message": "需要先开启任务跟踪才能标记为推进中"}
+        task_block_active = bool(rest_service and rest_service.has_active_task_block(chat_id)) if rest_service else False
+        if action == "推进中":
+            if not has_tracker:
+                return {"status": "error", "message": "需要先开启任务跟踪才能标记为推进中"}
+            if not task_block_active:
+                return {"status": "error", "message": "必须处于任务时间块内才能标记为推进中"}
+        if action == "休息中" and not is_resting:
+            return {"status": "error", "message": "当前不在休息时间，无法标记为休息中"}
         if is_resting and action and action != "休息中":
             action = "休息中"
         state = user_state_service.update_state(
@@ -339,6 +345,7 @@ def build_default_tools(
             mental=mental or None,
             has_active_tracker=has_tracker,
             is_resting=is_resting,
+            has_task_block=task_block_active,
         )
         return {
             "status": "ok",
@@ -402,6 +409,7 @@ def build_default_tools(
                 action="休息中",
                 has_active_tracker=has_tracker,
                 is_resting=True,
+                has_task_block=rest_service.has_active_task_block(chat_id) if rest_service else None,
             )
         return {
             "status": "approved",
@@ -439,6 +447,7 @@ def build_default_tools(
                     action=next_action,
                     has_active_tracker=has_tracker,
                     is_resting=still_resting,
+                    has_task_block=rest_service.has_active_task_block(chat_id) if rest_service else None,
                 )
         return {"status": "ok", "window_id": window_id}
 

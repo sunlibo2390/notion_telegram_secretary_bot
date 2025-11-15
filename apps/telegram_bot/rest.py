@@ -181,6 +181,10 @@ class RestScheduleService:
         window = self.current_window(chat_id, when, session_type="rest")
         return window is not None
 
+    def has_active_task_block(self, chat_id: int, when: Optional[datetime] = None) -> bool:
+        window = self.current_window(chat_id, when, session_type="task")
+        return window is not None
+
     def current_window(
         self,
         chat_id: int,
