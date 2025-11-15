@@ -71,10 +71,12 @@ class TaskTracker:
         chat_id: int,
         task: Task,
         interval_minutes: Optional[int] = None,
+        update_action_state: bool = True,
+        notify_user: bool = True,
     ) -> None:
         custom_interval = None
         if interval_minutes:
-            custom_interval = max(5, min(120, interval_minutes)) * 60
+            custom_interval = max(5, min(180, interval_minutes)) * 60
         interval = custom_interval or self._initial_interval
         with self._lock:
             self._cancel(chat_id)
@@ -88,15 +90,17 @@ class TaskTracker:
             )
             self._entries[chat_id] = entry
             timer.start()
-        minutes = interval // 60
-        self._client.send_message(
-            chat_id=chat_id,
-            text=(
-                f"\u5df2\u5f00\u59cb\u8ddf\u8e2a {escape_md(task.name)}\uff0c"
-                f"{minutes} \u5206\u949f\u540e\u5c06\u518d\u6b21\u8be2\u95ee\u3002"
-            ),
-        )
-        self._sync_action_state(chat_id, "\u63a8\u8fdb\u4e2d", has_tracker=True)
+        if notify_user:
+            minutes = interval // 60
+            self._client.send_message(
+                chat_id=chat_id,
+                text=(
+                    f"\u5df2\u5f00\u59cb\u8ddf\u8e2a {escape_md(task.name)}\uff0c"
+                    f"{minutes} \u5206\u949f\u540e\u5c06\u518d\u6b21\u8be2\u95ee\u3002"
+                ),
+            )
+        if update_action_state:
+            self._sync_action_state(chat_id, "\u63a8\u8fdb\u4e2d", has_tracker=True)
 
     def _send_reminder(self, chat_id: int) -> None:
         with self._lock:

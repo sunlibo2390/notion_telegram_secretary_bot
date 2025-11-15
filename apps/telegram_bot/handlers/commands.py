@@ -343,7 +343,7 @@ class CommandRouter:
             if success:
                 self._rest_snapshot[chat_id] = [wid for wid in snapshot if wid != window_id]
                 if self._session_monitor and window and window.session_type == "task":
-                    self._session_monitor.cancel(window_id)
+                    self._session_monitor.cancel(window_id, window=window)
                 self._send_message(chat_id, escape_md(f"已取消第 {index} 条时间块安排。"))
             else:
                 self._send_message(chat_id, escape_md("取消失败，时间块已过期或不存在。"))
@@ -544,7 +544,7 @@ class CommandRouter:
         status = status_map.get(window.status, window.status)
         if window.session_type == "task":
             task_label = window.task_name or window.task_id or "未命名任务"
-            prefix = f"[任务] {task_label}"
+            prefix = f"🛠️ {task_label}"
         else:
-            prefix = "[休息]"
+            prefix = "🍀"
         return f"{prefix} {start} ~ {end} ｜状态:{status}{note}"

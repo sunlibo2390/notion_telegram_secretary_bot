@@ -72,7 +72,7 @@ notion_secretary/
   - `/state` / `/next`：查看当前记录的行动/心理状态以及下一次主动提醒的预计时间（含跟踪任务、状态检查）。
   - `/logs update <序号> <内容>`：更新指定日志的内容（可附 `任务 XXX：...` 自动重绑任务）。
   - `/update`：立即从 Notion 拉取项目/任务/日志，刷新本地缓存。
-- **时间块管理**：`/blocks` 统一展示「休息」与「任务专注」时间段；对 Bot 说 “14:00-16:00 专注 Magnet 代码” 会创建任务窗口并在结束时提醒终止，避免任务无限拖延。
+- **时间块管理**：`/blocks` 统一展示「休息」与「任务专注」时间段；对 Bot 说 “14:00-16:00 专注 Magnet 代码” 会创建任务窗口，并自动开启该任务的追踪，到点提醒你收尾，避免任务无限拖延。
 - **日志智能**：Agent 触发 `record_log` 工具时会结合当前对话与近期历史自动匹配任务；若需要修订，可使用 `/logs update` 或 `update_log` 工具重新绑定。
 - **本地记忆**：手动创建的任务写入 `json/agent_tasks.json`，日志写入 `json/agent_logs.json`，即使执行 `/update` 或重新跑 `scripts/sync_databases.py` 也不会被覆盖。
 - **多渠道同步**：在 `config/settings.toml` 中配置 `[wecom].webhook_url` 后，Agent 的每条回复都会镜像到对应的企业微信机器人，方便在其他终端实时关注。

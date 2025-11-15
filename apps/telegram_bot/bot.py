@@ -84,7 +84,6 @@ def build_runtime() -> BotRuntime:
         request_timeout=settings.telegram.poll_timeout + 5,
         wecom_client=wecom_client,
     )
-    session_monitor = TaskSessionMonitor(client, rest_service)
     profile_path = Path(__file__).resolve().parents[2] / "docs" / "user_profile_doc.md"
     # print(profile_path)
     context_builder = AgentContextBuilder(history, profile_path)
@@ -95,6 +94,12 @@ def build_runtime() -> BotRuntime:
         follow_up_seconds=settings.tracker_follow_up,
         rest_service=rest_service,
         user_state=user_state,
+    )
+    session_monitor = TaskSessionMonitor(
+        client,
+        rest_service,
+        tracker=tracker,
+        task_repository=task_repo,
     )
     proactivity = ProactivityService(
         state_service=user_state,

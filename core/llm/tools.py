@@ -393,7 +393,7 @@ def build_default_tools(
             return {"status": "error", "message": str(exc)}
         if tracker and mode == "rest":
             tracker.defer_for_rest(chat_id, window.start, window.end)
-        if session_monitor:
+        if session_monitor and window.session_type == "task":
             session_monitor.schedule(window)
         if user_state_service and mode == "rest":
             has_tracker = bool(tracker and tracker.list_active(chat_id)) if tracker else False
@@ -423,8 +423,8 @@ def build_default_tools(
         success = rest_service.cancel_window(window_id)
         if not success:
             return {"status": "error", "message": "window not found"}
-        if session_monitor:
-            session_monitor.cancel(window_id)
+        if session_monitor and window and window.session_type == "task":
+            session_monitor.cancel(window_id, window=window)
         if user_state_service:
             has_tracker = bool(tracker and tracker.list_active(chat_id)) if tracker else False
             still_resting = rest_service.is_resting(chat_id)
@@ -644,7 +644,7 @@ def build_default_tools(
             [
                 AgentTool(
                     name="rest_list",
-                    description="查看当前或即将生效的休息/勿扰时间窗口",
+                    description="查看当前或即将生效的时间块（休息/任务专注）。",
                     parameters={
                         "type": "object",
                         "properties": {
