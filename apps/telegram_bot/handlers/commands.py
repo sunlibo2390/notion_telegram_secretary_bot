@@ -684,39 +684,39 @@ class CommandRouter:
         lines = ["下一次主动提醒预估："]
         if self._proactivity:
             desc = self._proactivity.describe_next_prompts(chat_id)
-            lines.append(f"- 行动状态：{self._format_state_desc(desc.get('action'))}")
-            lines.append(f"- 心理状态：{self._format_state_desc(desc.get('mental'))}")
-            question = desc.get("question", {})
-            if question.get("pending"):
-                lines.append(f"- 提问追踪：{self._format_due(question.get('due_time'))} 将再次提醒")
-            else:
-                lines.append("- 提问追踪：暂无")
-            rest = desc.get("rest", {})
-            next_start = rest.get("next_window_start")
-            next_end = rest.get("next_window_end")
-            if rest.get("active"):
-                lines.append(f"- 休息：进行中，结束于 {self._format_due(rest.get('current_end'))}")
-                if next_start and next_end and rest.get("current_end") != next_end:
-                    lines.append(f"  后续：{self._format_due(next_start)} ~ {self._format_due(next_end)}")
-            elif next_start and next_end:
-                lines.append(f"- 休息：计划 {self._format_due(next_start)} ~ {self._format_due(next_end)}")
-            else:
-                lines.append("- 休息：暂无安排")
+            action = self._format_state_desc(desc.get("action"))
+            mental = self._format_state_desc(desc.get("mental"))
+            lines.append(f"🕹️ 行动状态：{action['status']}")
+            if action["detail"]:
+                lines.append(f"  {action['detail']}")
+            lines.append(f"🧠 心理状态：{mental['status']}")
+            if mental["detail"]:
+                lines.append(f"  {mental['detail']}")
+            question_text = self._format_question_desc(desc.get("question"))
         else:
-            lines.append("- 状态提醒：未启用")
+            lines.append("🕹️ 行动状态：未启用")
+            lines.append("🧠 心理状态：未启用")
+            question_text = "未启用"
+        lines.append("")
+        lines.append(f"❓ 提问追踪：{question_text}")
+        lines.append("")
+        lines.append("🐾 活动跟踪：")
         if self._tracker:
             events = self._tracker.list_next_events(chat_id)
             if events:
-                lines.append("- 跟踪任务：")
                 for info in events:
                     suffix = "（等待回复）" if info.get("waiting") else ""
                     lines.append(
                         f"  · {escape_md(info['task_name'])} → {self._format_due(info.get('due_time'))}{suffix}"
                     )
             else:
-                lines.append("- 跟踪任务：暂无")
+                lines.append("  · 暂无")
         else:
-            lines.append("- 跟踪任务：未启用")
+            lines.append("  · 未启用")
+        lines.append("")
+        lines.append("⏱️ 时间块：")
+        for block_line in self._build_time_block_lines(chat_id):
+            lines.append(block_line)
         self._send_message(chat_id, "\n".join(lines), markdown=False)
 
     def _handle_proactive_event(self, chat_id: int, event: Dict[str, Any]) -> None:
@@ -798,24 +798,44 @@ class CommandRouter:
         except ValueError:
             return value
 
-    @staticmethod
-    def _format_state_desc(data: Optional[Dict[str, Any]]) -> str:
+    def _format_state_desc(self, data: Optional[Dict[str, Any]]) -> Dict[str, str]:
         if not data:
-            return "未启用"
+            return {"status": "未启用", "detail": ""}
         status = data.get("value", "未知")
-        due_raw = data.get("due_time")
-        due_text = CommandRouter._format_due(due_raw)
-        immediate = False
-        if due_raw:
-            try:
-                due_dt = datetime.fromisoformat(due_raw.replace("Z", "+00:00"))
-                now = datetime.utcnow().replace(tzinfo=timezone.utc)
-                immediate = due_dt <= now
-            except ValueError:
-                pass
+        due_text = self._format_due(data.get("due_time"))
+        detail = (
+            f"等待反馈，将在 {due_text} 追问"
+            if data.get("pending")
+            else f"记录有效，将在 {due_text} 再次确认"
+        )
+        return {"status": status, "detail": detail}
+
+    def _format_question_desc(self, data: Optional[Dict[str, Any]]) -> str:
+        if not data:
+            return "暂无"
+        due_text = self._format_due(data.get("due_time"))
         if data.get("pending"):
-            return f"{status}｜等待反馈，将在 {due_text} 追问"
-        return f"{status}｜记录有效，将在 {due_text} 再次确认"
+            return f"等待回复 → {due_text}"
+        if due_text != "未计划":
+            return f"计划在 {due_text} 复盘"
+        return "暂无"
+
+    def _build_time_block_lines(self, chat_id: int) -> List[str]:
+        if not self._rest_service:
+            return ["  · 未启用"]
+        windows = self._rest_service.list_windows(chat_id, include_past=False)
+        if not windows:
+            return ["  · 暂无安排"]
+        now = datetime.utcnow().replace(tzinfo=timezone.utc)
+        lines: List[str] = []
+        for window in windows[:5]:
+            emoji = "🍀" if window.session_type == "rest" else "🛠️"
+            label = window.task_name or window.note or ("休息" if window.session_type == "rest" else "任务")
+            start = format_beijing(window.start, "%m-%d %H:%M")
+            end = format_beijing(window.end, "%m-%d %H:%M")
+            status = "进行中" if window.start <= now <= window.end else "待开始"
+            lines.append(f"{emoji} {start} ~ {end} ｜{label}｜{status}")
+        return lines
 
     @staticmethod
     def _format_rest_window(window: RestWindow) -> str:
