@@ -722,16 +722,9 @@ class CommandRouter:
             lines.append("  · 未启用")
         lines.append("")
         lines.append("⏱️ 时间块：")
-        time_blocks = self._build_time_blocks(chat_id)
-        if time_blocks:
-            lines.append("```diff")
-            for status, text in time_blocks:
-                prefix = "+" if status == "active" else "-"
-                lines.append(f"{prefix} {text}")
-            lines.append("```")
-        else:
-            lines.append("  · 暂无安排")
-        self._send_message(chat_id, "\n".join(lines))
+        for block_line in self._build_time_block_lines(chat_id):
+            lines.append(block_line)
+        self._send_message(chat_id, "\n".join(lines), markdown=False)
 
     def _handle_proactive_event(self, chat_id: int, event: Dict[str, Any]) -> None:
         if not self._agent:
@@ -834,28 +827,22 @@ class CommandRouter:
             return f"计划在 {due_text} 复盘"
         return "暂无"
 
-    def _build_time_blocks(self, chat_id: int) -> List[tuple[str, str]]:
+    def _build_time_block_lines(self, chat_id: int) -> List[str]:
         if not self._rest_service:
-            return []
+            return ["  · 未启用"]
         windows = self._rest_service.list_windows(chat_id, include_past=False)
         if not windows:
-            return []
+            return ["  · 暂无安排"]
         now = datetime.utcnow().replace(tzinfo=timezone.utc)
-        result: List[tuple[str, str]] = []
+        lines: List[str] = []
         for window in windows[:5]:
             emoji = "🍀" if window.session_type == "rest" else "🛠️"
             label = window.task_name or window.note or ("休息" if window.session_type == "rest" else "任务")
-            line = (
-                f"{emoji} {format_beijing(window.start, '%m-%d %H:%M')} ~ "
-                f"{format_beijing(window.end, '%m-%d %H:%M')} ｜{escape_md(label)}"
-            )
-            status = "active" if window.start <= now <= window.end else "upcoming"
-            if status == "active":
-                line += " ｜进行中"
-            else:
-                line += " ｜待开始"
-            result.append((status, line))
-        return result
+            start = format_beijing(window.start, "%m-%d %H:%M")
+            end = format_beijing(window.end, "%m-%d %H:%M")
+            status = "进行中" if window.start <= now <= window.end else "待开始"
+            lines.append(f"    {emoji} {start} ~ {end} \n         {label}｜{status}")
+        return lines
 
     @staticmethod
     def _format_rest_window(window: RestWindow) -> str:
