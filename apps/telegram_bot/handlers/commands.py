@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import re
 import string
 from datetime import datetime, timezone
@@ -687,51 +688,52 @@ class CommandRouter:
         self._handle_next(chat_id)
 
     def _handle_next(self, chat_id: int) -> None:
-        lines = ["\n\n"]
+        lines = ["<b>下一次主动提醒预估：</b>"]
         if self._proactivity:
             desc = self._proactivity.describe_next_prompts(chat_id)
             action = self._format_state_desc(desc.get("action"))
             mental = self._format_state_desc(desc.get("mental"))
-            lines.append(f"🕹️ 行动状态：{action['status']}")
+            lines.append(f"🕹️ 行动状态：<b>{html.escape(action['status'])}</b>")
             if action["detail"]:
-                lines.append(f"{action['detail']}")
-            lines.append("")
-            lines.append(f"🧠 心理状态：{mental['status']}")
+                lines.append(f"  {html.escape(action['detail'])}")
+            lines.append(f"🧠 心理状态：<b>{html.escape(mental['status'])}</b>")
             if mental["detail"]:
-                lines.append(f"{mental['detail']}")
+                lines.append(f"  {html.escape(mental['detail'])}")
             question_text = self._format_question_desc(desc.get("question"))
         else:
-            lines.append("🕹️ 行动状态：未启用")
-            lines.append("🧠 心理状态：未启用")
+            lines.append("🕹️ 行动状态：<b>未启用</b>")
+            lines.append("🧠 心理状态：<b>未启用</b>")
             question_text = "未启用"
         lines.append("")
-        lines.append(f"❓ 提问追踪：{question_text}")
+        lines.append(f"❓ 提问追踪：{html.escape(question_text)}")
         lines.append("")
-        lines.append("🐾 活动跟踪：")
+        lines.append("<b>🐾 活动跟踪：</b>")
         if self._tracker:
             events = self._tracker.list_next_events(chat_id)
             if events:
                 for info in events:
                     suffix = "（等待回复）" if info.get("waiting") else ""
                     lines.append(
-                        f"  · {escape_md(info['task_name'])} → {self._format_due(info.get('due_time'))}{suffix}"
+                        f"  · {html.escape(info['task_name'])} → "
+                        f"{html.escape(self._format_due(info.get('due_time')))}{html.escape(suffix)}"
                     )
             else:
                 lines.append("  · 暂无")
         else:
             lines.append("  · 未启用")
         lines.append("")
-        lines.append("⏱️ 时间块：")
+        lines.append("<b>⏱️ 时间块：</b>")
         time_blocks = self._build_time_blocks(chat_id)
         if time_blocks:
-            lines.append("```diff")
-            for status, text in time_blocks:
-                prefix = "+" if status == "active" else "-"
-                lines.append(f"{prefix} {text}")
-            lines.append("```")
+            diff_content = "\n".join(
+                f"{'+' if status == 'active' else '-'} {text}" for status, text in time_blocks
+            )
+            lines.append(
+                f'<pre><code class="language-diff">{html.escape(diff_content)}</code></pre>'
+            )
         else:
             lines.append("  · 暂无安排")
-        self._send_message(chat_id, "\n".join(lines))
+        self._send_message(chat_id, "\n".join(lines), parse_mode="HTML")
 
     def _handle_proactive_event(self, chat_id: int, event: Dict[str, Any]) -> None:
         if not self._agent:
@@ -758,8 +760,15 @@ class CommandRouter:
             if resp and resp.strip():
                 self._send_message(chat_id, resp)
 
-    def _send_message(self, chat_id: int, text: str, markdown: bool = True) -> None:
-        parse_mode = "Markdown" if markdown else None
+    def _send_message(
+        self,
+        chat_id: int,
+        text: str,
+        markdown: bool = True,
+        parse_mode: Optional[str] = None,
+    ) -> None:
+        if parse_mode is None:
+            parse_mode = "Markdown" if markdown else None
         self._client.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode)
         if self._proactivity:
             self._proactivity.record_agent_message(chat_id, text)
@@ -847,7 +856,7 @@ class CommandRouter:
             label = window.task_name or window.note or ("休息" if window.session_type == "rest" else "任务")
             line = (
                 f"{emoji} {format_beijing(window.start, '%m-%d %H:%M')} ~ "
-                f"{format_beijing(window.end, '%m-%d %H:%M')} ｜{escape_md(label)}"
+                f"{format_beijing(window.end, '%m-%d %H:%M')} ｜{html.escape(label)}"
             )
             status = "active" if window.start <= now <= window.end else "upcoming"
             if status == "active":
