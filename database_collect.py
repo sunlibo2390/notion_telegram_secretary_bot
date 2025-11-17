@@ -1,10 +1,8 @@
 import argparse
 
 from data_pipeline.collectors.notion import NotionCollector, NotionCollectorConfig
+from data_pipeline.pipeline import build_default_processors
 from infra.config import Settings, load_settings
-from process.logs_process import process_logs
-from process.projects_process import process_projects
-from process.tasks_process import process_tasks
 
 
 def collector_from_settings(settings: Settings, force: bool = False) -> NotionCollector:
@@ -12,13 +10,14 @@ def collector_from_settings(settings: Settings, force: bool = False) -> NotionCo
         raise RuntimeError("No Notion database IDs configured.")
     config = NotionCollectorConfig(
         api_key=settings.notion.api_key,
+        api_version=settings.notion.api_version,
         database_ids=settings.notion.database_ids,
         data_dir=settings.paths.data_dir,
         duration_threshold_minutes=30,
         sync_interval_seconds=settings.notion.sync_interval,
         force_update=force or settings.notion.force_update,
     )
-    processors = [process_projects, process_tasks, process_logs]
+    processors = build_default_processors(config)
     return NotionCollector(config=config, processors=processors)
 
 

@@ -63,6 +63,7 @@ class CommandRouter:
         self._session_monitor = session_monitor
         self._notion_sync = notion_sync
         self._log_snapshot: Dict[int, List[str]] = {}
+        self._task_snapshot: Dict[int, List[str]] = {}
         self._rest_snapshot: Dict[int, List[str]] = {}
         if self._proactivity:
             self._proactivity.set_event_handler(self._handle_proactive_event)
@@ -184,7 +185,13 @@ class CommandRouter:
             self._send_message(chat_id, escape_md("Notion 同步未配置。"))
             return
         self._send_message(chat_id, escape_md("正在从 Notion 拉取最新任务与日志..."))
-        result = self._notion_sync.sync(actor=f"command:{chat_id}")
+
+        def _progress(message: str) -> None:
+            self._send_message(chat_id, escape_md(message))
+
+        result = self._notion_sync.sync(
+            actor=f"command:{chat_id}", force=True, progress_callback=_progress
+        )
         prefix = "✅" if result.success else "⚠️"
         self._send_message(chat_id, f"{prefix} {result.message}", markdown=False)
 
@@ -386,7 +393,8 @@ class CommandRouter:
         lines = [
             "*指令列表*",
             "/help - 查看所有命令说明",
-            "/tasks [N] - 查看当前待办任务列表（默认 N=10）",
+            "/tasks [N] - 查看当前待办任务列表（默认 N=10）。使用 update/delete 可通过序号修改自建任务。",
+            "/tasks projects [N] - 按项目分组查看任务（默认每个项目展示 5 条，N 可调）。",
             "/logs [N] - 查看最近日志（默认 N=5）",
             "/logs tasks [N] - 按任务归并查看最近日志（默认展示 5 个任务，每个最多 3 条日志）",
             "/logs delete <序号> - 删除最近一次 /logs 输出中的对应日志",
@@ -406,12 +414,68 @@ class CommandRouter:
         if not self._task_repo:
             self._send_message(chat_id, escape_md("任务数据不可用。"))
             return
-        limit = 10
         parts = text.split()
+        if len(parts) >= 2:
+            action = parts[1].lower()
+            if action == "delete":
+                self._handle_task_delete(chat_id, text)
+                return
+            if action == "update":
+                self._handle_task_update(chat_id, text)
+                return
+            if action in {"projects", "project", "byproject", "group"}:
+                per_project_limit = 5
+                for token in parts[2:]:
+                    if token.isdigit():
+                        per_project_limit = max(1, min(20, int(token)))
+                        break
+                self._handle_tasks_grouped(chat_id, per_project_limit=per_project_limit)
+                return
+        limit = 10
         for token in parts[1:]:
             if token.isdigit():
                 limit = max(1, min(20, int(token)))
                 break
+        tasks = self._task_repo.list_active_tasks()
+        if not tasks:
+            self._task_snapshot.pop(chat_id, None)
+            self._send_message(chat_id, escape_md("当前没有待办任务。"))
+            return
+        def sort_key(task):
+            priority_order = {"Urgent": 0, "High": 1, "Medium": 2, "Low": 3}
+            return (
+                priority_order.get(task.priority, 99),
+                task.due_date or "9999-12-31",
+                task.name.lower(),
+            )
+        sorted_tasks = sorted(tasks, key=sort_key)[:limit]
+        self._task_snapshot[chat_id] = [task.id for task in sorted_tasks]
+        lines: List[str] = []
+        for idx, task in enumerate(sorted_tasks, start=1):
+            url = task.page_url or f"https://www.notion.so/{task.id.replace('-', '')}"
+            name = escape_md(task.name)
+            priority = escape_md(task.priority or "Unknown")
+            status = escape_md(task.status or "Unknown")
+            due_text = self._format_due(task.due_date)
+            project = escape_md(task.project_name or "")
+            lines.append(f"{idx}. [{name}]({url}) ｜状态:{status} ｜优先级:{priority} ｜截止:{due_text}")
+            if project:
+                lines.append(f"  项目：{project}")
+            # snippet = (task.content or "").strip()
+            # if snippet:
+            #     # 视为一行，去除空白符，打印前60字符
+            #     snippet_one_line = " ".join(snippet.split())
+            #     preview = snippet_one_line[:60]
+            #     # preview = escape_md(snippet_one_line[:60])
+            #     lines.append(f"  摘要：{preview}")
+            lines.append("")
+        lines.append(escape_md("提示：/tasks update <序号> status=进行中 或 /tasks delete <序号>（仅自建任务）"))
+        self._send_message(chat_id, "\n".join(lines).strip(), markdown=True)
+
+    def _handle_tasks_grouped(self, chat_id: int, per_project_limit: int = 5) -> None:
+        if not self._task_repo:
+            self._send_message(chat_id, escape_md("任务数据不可用。"))
+            return
         tasks = self._task_repo.list_active_tasks()
         if not tasks:
             self._send_message(chat_id, escape_md("当前没有待办任务。"))
@@ -423,26 +487,129 @@ class CommandRouter:
                 task.due_date or "9999-12-31",
                 task.name.lower(),
             )
-        lines: List[str] = []
-        for task in sorted(tasks, key=sort_key)[:limit]:
-            url = task.page_url or f"https://www.notion.so/{task.id.replace('-', '')}"
-            name = escape_md(task.name)
-            priority = escape_md(task.priority or "Unknown")
-            status = escape_md(task.status or "Unknown")
-            due_text = self._format_due(task.due_date)
-            project = escape_md(task.project_name or "")
-            lines.append(f"- [{name}]({url}) ｜状态:{status} ｜优先级:{priority} ｜截止:{due_text}")
-            if project:
-                lines.append(f"  项目：{project}")
-            # snippet = (task.content or "").strip()
-            # if snippet:
-            #     # 视为一行，去除空白符，打印前60字符
-            #     snippet_one_line = " ".join(snippet.split())
-            #     preview = snippet_one_line[:60]
-            #     # preview = escape_md(snippet_one_line[:60])
-            #     lines.append(f"  摘要：{preview}")
+        groups: Dict[str, List] = {}
+        for task in tasks:
+            project_key = task.project_name.strip() if task.project_name else "未归类"
+            groups.setdefault(project_key, []).append(task)
+        ordered_projects = sorted(
+            groups.items(),
+            key=lambda item: sort_key(min(item[1], key=sort_key)),
+        )
+        lines = ["*按项目分组任务*"]
+        for idx, (project_name, bucket) in enumerate(ordered_projects, start=1):
+            safe_project = escape_md(project_name or "未归类")
+            lines.append(f"{idx}. {safe_project} ｜任务:{len(bucket)}")
+            for task in sorted(bucket, key=sort_key)[:per_project_limit]:
+                url = task.page_url or f"https://www.notion.so/{task.id.replace('-', '')}"
+                name = escape_md(task.name)
+                status = escape_md(task.status or "Unknown")
+                due_text = self._format_due(task.due_date)
+                lines.append(f"  - [{name}]({url}) ｜状态:{status} ｜截止:{due_text}")
             lines.append("")
+        lines.append(escape_md("提示：使用 /tasks projects [N] 可设置每个项目的展示数量。"))
         self._send_message(chat_id, "\n".join(lines).strip(), markdown=True)
+
+    def _handle_task_delete(self, chat_id: int, text: str) -> None:
+        snapshot = self._task_snapshot.get(chat_id)
+        if not snapshot:
+            self._send_message(chat_id, escape_md("请先使用 /tasks 查看列表，再执行删除。"))
+            return
+        match = re.search(r"/tasks\s+delete\s+(\d+)", text, flags=re.IGNORECASE)
+        if not match:
+            self._send_message(chat_id, escape_md("用法：/tasks delete 序号"))
+            return
+        index = int(match.group(1))
+        if index < 1 or index > len(snapshot):
+            self._send_message(chat_id, escape_md("序号超出范围，请重新 /tasks 查看。"))
+            return
+        task_id = snapshot[index - 1]
+        if not self._task_repo.is_custom_task(task_id):
+            self._send_message(chat_id, escape_md("该任务来自 Notion，暂不支持直接删除。"))
+            return
+        success = self._task_repo.delete_custom_task(task_id)
+        if success:
+            self._task_snapshot[chat_id] = [tid for tid in snapshot if tid != task_id]
+            self._send_message(chat_id, escape_md("已删除该自建任务。"))
+        else:
+            self._send_message(chat_id, escape_md("删除失败，未找到该自建任务。"))
+
+    def _handle_task_update(self, chat_id: int, text: str) -> None:
+        snapshot = self._task_snapshot.get(chat_id)
+        if not snapshot:
+            self._send_message(chat_id, escape_md("请先使用 /tasks 查看列表，再执行更新。"))
+            return
+        match = re.search(r"/tasks\s+update\s+(\d+)\s*(.*)", text, flags=re.IGNORECASE)
+        if not match:
+            self._send_message(chat_id, escape_md("用法：/tasks update 序号 字段=值 ..."))
+            return
+        index = int(match.group(1))
+        payload_text = match.group(2).strip()
+        if index < 1 or index > len(snapshot):
+            self._send_message(chat_id, escape_md("序号超出范围，请重新 /tasks 查看。"))
+            return
+        if not payload_text:
+            self._send_message(chat_id, escape_md("请提供需要更新的字段，例如 status=进行中 priority=High"))
+            return
+        updates = self._parse_task_updates(payload_text)
+        if not updates:
+            self._send_message(chat_id, escape_md("未能识别需要更新的字段，可用 name/status/priority/due/content/project。"))
+            return
+        task_id = snapshot[index - 1]
+        if not self._task_repo.is_custom_task(task_id):
+            self._send_message(chat_id, escape_md("该任务来自 Notion，暂不支持直接修改。"))
+            return
+        task = self._task_repo.update_custom_task(task_id, **updates)
+        if not task:
+            self._send_message(chat_id, escape_md("更新失败，未找到该自建任务。"))
+            return
+        name = escape_md(task.name)
+        status = escape_md(task.status)
+        priority = escape_md(task.priority)
+        due_text = self._format_due(task.due_date)
+        self._send_message(
+            chat_id,
+            escape_md(f"任务已更新：{name} ｜状态:{status} ｜优先级:{priority} ｜截止:{due_text}"),
+        )
+
+    @staticmethod
+    def _parse_task_updates(payload: str) -> Dict[str, Optional[str]]:
+        allowed = {
+            "name": "name",
+            "status": "status",
+            "priority": "priority",
+            "due": "due_date",
+            "due_date": "due_date",
+            "content": "content",
+            "project": "project_name",
+            "project_name": "project_name",
+        }
+        updates: Dict[str, Optional[str]] = {}
+        current_key: Optional[str] = None
+        current_value: List[str] = []
+        tokens = payload.split()
+        for token in tokens:
+            if "=" in token:
+                key, value = token.split("=", 1)
+                if current_key:
+                    mapped = allowed.get(current_key)
+                    if mapped:
+                        updates[mapped] = " ".join(current_value).strip() or None
+                current_key = key.strip().lower()
+                current_value = [value]
+            else:
+                if current_key:
+                    current_value.append(token)
+        if current_key:
+            mapped = allowed.get(current_key)
+            if mapped:
+                updates[mapped] = " ".join(current_value).strip() or None
+        # 允许特殊值清空截止
+        for key, value in list(updates.items()):
+            if value:
+                lowered = value.lower()
+                if lowered in {"none", "null", "clear", "空", "无"}:
+                    updates[key] = None
+        return updates
 
     def _maybe_auto_update_state(self, chat_id: int, text: str) -> None:
         if not self._user_state or not text:

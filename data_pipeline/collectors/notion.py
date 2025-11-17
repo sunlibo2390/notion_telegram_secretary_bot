@@ -6,18 +6,18 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List
+from typing import Callable, Dict, Iterable, Optional
 
-import requests
-
+from data_pipeline.notion_api import NotionAPI
 from data_pipeline.storage import paths
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(slots=True)
 class NotionCollectorConfig:
     api_key: str
+    api_version: str
     database_ids: Dict[str, str]
     data_dir: Path
     duration_threshold_minutes: int = 30
@@ -30,6 +30,13 @@ class NotionCollector:
     config: NotionCollectorConfig
     processors: Iterable[Callable[[], None]] = field(default_factory=list)
     update_marker_filename: str = "last_updated.txt"
+    _api_client: NotionAPI = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._api_client = NotionAPI(
+            api_key=self.config.api_key,
+            api_version=self.config.api_version,
+        )
 
     def _update_marker_path(self) -> Path:
         return self.config.data_dir / self.update_marker_filename
@@ -57,38 +64,36 @@ class NotionCollector:
         delta = datetime.now() - last_updated
         return delta >= timedelta(minutes=self.config.duration_threshold_minutes)
 
-    def _request_headers(self) -> Dict[str, str]:
-        return {
-            "Authorization": f"Bearer {self.config.api_key}",
-            "Notion-Version": "2022-06-28",
-            "Content-Type": "application/json",
-        }
-
     def fetch_database(self, database_id: str) -> Dict:
-        url = f"https://api.notion.com/v1/databases/{database_id}/query"
-        headers = self._request_headers()
-        for _ in range(5):
-            logger.info("请求 Notion 数据库：%s", database_id)
-            response = requests.post(url, headers=headers, timeout=30)
-            if response.status_code == 200:
-                logger.info("Notion 数据库 %s 请求成功", database_id)
-                return response.json()
-            time.sleep(10)
-        logger.error("多次重试仍无法获取 Notion 数据库：%s", database_id)
-        raise RuntimeError(f"Failed to fetch database {database_id}")
+        logger.info("请求 Notion 数据库：%s", database_id)
+        payload = self._api_client.query_database(database_id)
+        logger.info("Notion 数据库 %s 请求成功", database_id)
+        return payload
 
     def _persist_raw_payload(self, key: str, data: Dict) -> None:
         raw_path = paths.raw_json_path(key)
         with raw_path.open("w", encoding="utf-8") as file:
             json.dump(data, file, ensure_ascii=False, indent=4)
 
-    def collect_once(self) -> None:
+    def collect_once(self, progress_callback: Optional[Callable[[str], None]] = None) -> None:
         if not self.update_needed():
+            logger.info("Skip Notion collection: data already fresh.")
+            return
+        total_databases = len(self.config.database_ids)
+        if total_databases == 0:
+            logger.warning("No Notion databases configured for collection.")
             return
         for key, database_id in self.config.database_ids.items():
+            if progress_callback:
+                progress_callback(
+                    f"拉取 Notion 数据库 {key}（{database_id}）中..."
+                )
             payload = self.fetch_database(database_id)
             self._persist_raw_payload(key, payload)
         for processor in self.processors:
+            name = getattr(processor, "__name__", processor.__class__.__name__)
+            if progress_callback:
+                progress_callback(f"开始运行处理器 {name}...")
             processor()
         self._write_last_updated()
 

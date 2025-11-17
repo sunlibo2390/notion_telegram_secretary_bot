@@ -227,6 +227,7 @@ class ProactivityService:
             due = retry_due if due < retry_due else due
         elif due < now:
             due = now
+        due = self._adjust_due_for_rest(chat_id, due, now)
         return pending, due
 
     def _adjust_due_for_rest(self, chat_id: int, due: Optional[datetime], now: datetime) -> Optional[datetime]:

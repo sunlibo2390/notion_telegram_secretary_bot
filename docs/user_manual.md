@@ -43,12 +43,12 @@
    python database_collect.py --force
    ```
    - 脚本会调用 Notion API，结果写入 `DATA_DIR/raw_json`.
-   - 同步完成后自动执行 `process/projects|tasks|logs`，生成结构化的 `processed_*.json`。
+   - 同步完成后自动执行 `data_pipeline.processors`（projects / tasks / logs），生成结构化的 `processed_*.json`。
 3. **持续同步（可选）**  
    ```bash
    python database_collect.py --loop
    ```
-   该模式会按 `NOTION_SYNC_INTERVAL` 轮询，可结合系统服务/任务计划保持运行。
+   该模式会按 `NOTION_SYNC_INTERVAL` 轮询，可结合系统服务/任务计划保持运行。若只运行 Telegram Bot，程序在启动后也会依据 `notion.sync_interval` 自动触发后台同步，并复用同一 `last_updated.txt` 判断是否需要执行，因此无需额外守护进程（但 `--loop` 方式可作为独立任务继续运行）。
 
 ## 3. 启动 Telegram Bot
 

@@ -91,6 +91,7 @@ database_ids_path = "database_ids.json"
 api_key = "secret_xxx"
 sync_interval = 1800
 force_update = false
+api_version = "2022-06-28"
 
 [telegram]
 token = "8096:ABCDEF"

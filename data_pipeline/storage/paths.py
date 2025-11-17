@@ -2,17 +2,37 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATA_DIR = Path(os.getenv("DATA_DIR", _PROJECT_ROOT / "databases")).resolve()
-RAW_JSON_DIR = DATA_DIR / "raw_json"
-PROCESSED_DIR = DATA_DIR / "json"
-TELEGRAM_HISTORY_DIR = DATA_DIR / "telegram_history"
+_DEFAULT_BASE = Path(os.getenv("DATA_DIR", _PROJECT_ROOT / "databases")).resolve()
 
-for directory in (RAW_JSON_DIR, PROCESSED_DIR, TELEGRAM_HISTORY_DIR):
-    directory.mkdir(parents=True, exist_ok=True)
+
+def _prepare_directories(base_dir: Path) -> Tuple[Path, Path, Path, Path]:
+    raw_dir = base_dir / "raw_json"
+    processed_dir = base_dir / "json"
+    history_dir = base_dir / "telegram_history"
+    for directory in (raw_dir, processed_dir, history_dir):
+        directory.mkdir(parents=True, exist_ok=True)
+    return base_dir, raw_dir, processed_dir, history_dir
+
+
+DATA_DIR, RAW_JSON_DIR, PROCESSED_DIR, TELEGRAM_HISTORY_DIR = _prepare_directories(
+    _DEFAULT_BASE
+)
+
+
+def configure(base_dir: Path | str) -> None:
+    """
+    Override the base data directory at runtime so repositories and processors
+    share the same location regardless of import order.
+    """
+    global DATA_DIR, RAW_JSON_DIR, PROCESSED_DIR, TELEGRAM_HISTORY_DIR
+    base = Path(base_dir).resolve()
+    DATA_DIR, RAW_JSON_DIR, PROCESSED_DIR, TELEGRAM_HISTORY_DIR = _prepare_directories(
+        base
+    )
 
 
 def raw_json_path(name: str, suffix: str = ".json") -> Path:

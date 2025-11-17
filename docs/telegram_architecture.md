@@ -33,7 +33,7 @@
 | `infra/scheduler/` | 可使用 APScheduler/cron 启动周期性推送任务，触发 bot 的主动消息。 |
 | `prompts/` | Secretary persona、工具描述、系统指令。 |
 
-> `telegram.ipynb` 中的示例代码可作为 `TelegramBotClient` 中 `sendMessage` / `getUpdates` 的最小实现参考。
+> 历史上的 Jupyter 示例已合并进正式代码，可在 `apps/telegram_bot/clients/telegram_client.py` 中找到 `sendMessage` / `getUpdates` 的最小实现。
 
 ## 对话历史管理
 1. **拉取用户消息**：`getUpdates(offset=last_update_id+1)`，遍历 `result`，将用户消息写入 `history_store`，并将 `update_id` 标记为已消费。
@@ -80,7 +80,7 @@
 
 ## 长轮询与可靠性
 - 采用 `while True` + `sleep` 的长轮询方式；每次拉取后立即设置 `offset`，避免重复。
-- 可记录最近一次成功轮询时间，写入 `process/logs` 便于排障。
+- 可记录最近一次成功轮询时间，写入 `logs/telegram_bot.log` 便于排障。
 - 若需要多实例部署，可将 `offset` 存在 Redis / DB，保证只有一个 worker 消费。
 
 ## 未来升级

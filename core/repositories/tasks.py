@@ -197,3 +197,7 @@ class TaskRepository:
         self._custom_cache.pop(task_id, None)
         self._save_custom()
         return True
+
+    def is_custom_task(self, task_id: str) -> bool:
+        self._load_custom()
+        return task_id in self._custom_cache

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
-
+from dataclasses import dataclass, field
 from pathlib import Path
+import threading
+from typing import List
 
 from apps.telegram_bot.clients import TelegramBotClient, WeComWebhookClient
 from apps.telegram_bot.handlers import CommandRouter
@@ -33,6 +34,7 @@ class BotRuntime:
     history: HistoryStore
     router: CommandRouter
     poll_timeout: int = 25
+    background_threads: List[threading.Thread] = field(default_factory=list)
 
     def run_forever(self):
         logger.info("Starting Telegram bot long-polling loop")
@@ -69,6 +71,9 @@ def build_runtime() -> BotRuntime:
         task_repository=task_repo,
         project_repository=project_repo,
         log_repository=log_repo,
+    )
+    notion_sync.set_progress_callback(
+        lambda message: logger.info("[NotionSync] %s", message)
     )
     task_service = TaskSummaryService(task_repo, project_repo, log_repo)
     logbook_service = LogbookService(log_repo, task_repo)
@@ -158,6 +163,11 @@ def build_runtime() -> BotRuntime:
             "LLM Agent 未配置。请在 config/settings.toml -> [llm] 中设置有效的 api_key / model。"
         )
 
+    background_threads: List[threading.Thread] = []
+    if settings.notion.sync_interval > 0:
+        thread = notion_sync.start_background_sync(settings.notion.sync_interval)
+        background_threads.append(thread)
+
     router = CommandRouter(
         client=client,
         history_store=history,
@@ -176,6 +186,7 @@ def build_runtime() -> BotRuntime:
         history=history,
         router=router,
         poll_timeout=settings.telegram.poll_timeout,
+        background_threads=background_threads,
     )
 
 

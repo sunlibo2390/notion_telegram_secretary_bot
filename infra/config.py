@@ -11,6 +11,8 @@ try:  # pragma: no cover - shim for Python < 3.11
 except ModuleNotFoundError:  # pragma: no cover
     import tomli as tomllib  # type: ignore[no-redef]
 
+from data_pipeline.storage import paths as data_paths
+
 
 @dataclass(frozen=True)
 class TelegramSettings:
@@ -34,6 +36,7 @@ class NotionSettings:
     database_ids: Dict[str, str]
     sync_interval: int
     force_update: bool
+    api_version: str
 
 
 @dataclass(frozen=True)
@@ -83,11 +86,6 @@ def _load_toml(path: Path) -> Dict[str, Any]:
         return tomllib.load(fp)
 
 
-def _ensure_dir(path: Path) -> Path:
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
 def _load_database_ids(path: Path) -> Dict[str, str]:
     if path.exists():
         with path.open("r", encoding="utf-8") as f:
@@ -113,9 +111,10 @@ def load_settings(
         or os.getenv("DATA_DIR")
         or root / "databases"
     ).resolve()
-    raw_dir = _ensure_dir(data_dir / "raw_json")
-    processed_dir = _ensure_dir(data_dir / "json")
-    history_dir = _ensure_dir(data_dir / "telegram_history")
+    data_paths.configure(data_dir)
+    raw_dir = data_paths.RAW_JSON_DIR
+    processed_dir = data_paths.PROCESSED_DIR
+    history_dir = data_paths.TELEGRAM_HISTORY_DIR
     database_ids_path = Path(
         paths_cfg.get("database_ids_path")
         or os.getenv("NOTION_DATABASE_IDS_PATH")
@@ -161,6 +160,11 @@ def load_settings(
     sync_interval = int(
         notion_cfg.get("sync_interval")
         or os.getenv("NOTION_SYNC_INTERVAL", "1800")
+    )
+    api_version = (
+        notion_cfg.get("api_version")
+        or os.getenv("NOTION_API_VERSION")
+        or "2022-06-28"
     )
     force_flag = (
         notion_cfg.get("force_update")
@@ -246,6 +250,7 @@ def load_settings(
             database_ids=database_ids,
             sync_interval=sync_interval,
             force_update=bool(force_flag),
+            api_version=api_version,
         ),
         llm=llm_settings if llm_settings.api_key else None,
         wecom=wecom_settings,

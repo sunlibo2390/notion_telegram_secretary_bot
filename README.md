@@ -25,8 +25,9 @@ notion_secretary/
 │   └── llm/                   # Prompt 模板、技能注册、OpenAI Client/agent loop
 ├── data_pipeline/
 │   ├── collectors/            # Notion 数据拉取（database_collect 重构版）
-│   ├── processors/            # projects_process / tasks_process / logs_process
+│   ├── processors/            # Projects/Tasks/Logs 处理器
 │   ├── transformers/          # Markdown 转换、字段清洗
+│   ├── notion_api.py          # 统一的 Notion API 客户端
 │   └── storage/               # raw_json / processed / cache
 ├── prompts/                   # 对话、summary、干预话术模板
 ├── response_examples/         # Telegram 交互示例
@@ -44,11 +45,11 @@ notion_secretary/
     └── scheduler/             # 预留后台 cron / APScheduler 任务
 ```
 
-> 现有 `database_collect.py`、`process/*.py`、`block2md.py`、`block_children_query.py` 等脚本，可平移至 `data_pipeline`。`telegram.ipynb` 与 `secretary.py` 的实验逻辑建议整理到 `apps/telegram_bot/`.
+> `database_collect.py` 会在采集后依次执行 `data_pipeline.processors` 中的 Projects / Tasks / Logs 处理器，并已将历史 `block2md.py`、`block_children_query.py` 等脚本内嵌为模块化依赖。Bot 启动后同样会按照 `notion.sync_interval` 在后台定时触发 `NotionSyncService`（内部也会检查 `last_updated.txt`，避免频繁拉取），保持 processed 数据的新鲜度。
 
 ## 数据流（Agent 视角）
 1. **Collector**：轮询 Notion API，写入 `data_pipeline/storage/raw_json/`.
-2. **Processor**：调用 `block_children_query` / `block2md` 标准化内容，落地 `processed/*.json`.
+2. **Processor**：`data_pipeline.processors` 使用统一的 `NotionAPI` + Markdown transformer 标准化内容，落地 `processed/*.json`.
 3. **Repository / Memory**：`core/repositories/*` + `docs/user_profile_doc.md` 组成 Agent 的 “事实记忆”。
 4. **Agent Loop**
    - `context_builder` 汇总 Telegram 历史、最新任务、画像特征
@@ -89,6 +90,7 @@ notion_secretary/
 | --- | --- |
 | `notion.api_key` | 访问 Notion API |
 | `notion.sync_interval` | 周期性同步间隔（秒） |
+| `notion.api_version` | Notion API 版本号，默认 `2022-06-28` |
 | `paths.data_dir` | Raw/processed/telegram_history 数据根目录 |
 | `paths.database_ids_path` | `database_ids.json` 所在路径 |
 | `telegram.token` | Telegram Bot Token |
@@ -123,7 +125,7 @@ notion_secretary/
 - **数据层**：任何直接访问 Notion 的操作放在 `data_pipeline/collectors`，避免散落在 bot handlers 中。
 - **领域层**：`core/domain` 中的对象应保持纯粹（不依赖 Telegram/Notion SDK），便于测试。
 - **服务层**：先处理 deterministic 逻辑，再调用 LLM。所有 LLM prompt 模板集中在 `prompts/`.
-- **日志与监控**：Bot 与数据同步脚本统一使用 `structlog` 或 logging 配置输出，写入 `process/logs/`.
+- **日志与监控**：Bot 与数据同步脚本统一使用 logging 配置输出，写入 `logs/`.
 - **测试**：重要流程（任务筛选、提醒策略）需要 `tests/` 中的单元测试，Telegram 交互可用 fixture 模拟；具体覆盖点与接口契约见 `docs/development_guide.md`.
 
 ## 后续迭代方向
