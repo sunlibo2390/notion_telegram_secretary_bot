@@ -65,6 +65,7 @@ class CommandRouter:
         self._log_snapshot: Dict[int, List[str]] = {}
         self._task_snapshot: Dict[int, List[str]] = {}
         self._rest_snapshot: Dict[int, List[str]] = {}
+        self._tracking_snapshot: Dict[int, List[str]] = {}
         if self._proactivity:
             self._proactivity.set_event_handler(self._handle_proactive_event)
 
@@ -88,6 +89,7 @@ class CommandRouter:
             if self._proactivity:
                 self._proactivity.reset(chat_id)
             self._log_snapshot.pop(chat_id, None)
+            self._tracking_snapshot.pop(chat_id, None)
             self._send_message(chat_id, escape_md("历史记录已归档，进入新的会话。"))
             return
         if lowered.startswith("/track "):
@@ -163,18 +165,19 @@ class CommandRouter:
         if not entries:
             self._send_message(chat_id, escape_md("当前没有正在跟踪的任务。"))
             return
-        if not hint and len(entries) > 1:
-            lines = [
-                f"- {escape_md(entry.task_name)} ｜ID: {escape_md(entry.task_id)}"
-                for entry in entries
-            ]
+        snapshot = self._tracking_snapshot.get(chat_id, [])
+        resolved_hint = hint
+        if hint and hint.isdigit():
+            index = int(hint)
+            if 1 <= index <= len(snapshot):
+                resolved_hint = snapshot[index - 1]
+        if not resolved_hint and len(entries) > 1:
             self._send_message(
                 chat_id,
-                "当前有多项跟踪，请通过 `/untrack <任务ID或关键词>` 指定需要取消的任务：\n"
-                + "\n".join(lines),
+                escape_md("当前有多项跟踪，请先执行 /trackings 获取序号后再 `/untrack <序号>`。"),
             )
             return
-        entry = self._tracker.stop_tracking(chat_id, task_hint=hint)
+        entry = self._tracker.stop_tracking(chat_id, task_hint=resolved_hint)
         if not entry:
             self._send_message(chat_id, escape_md("未找到匹配的跟踪任务。"))
             return
@@ -191,10 +194,14 @@ class CommandRouter:
         if not entries:
             self._send_message(chat_id, escape_md("当前没有跟踪任务。"))
             return
-        lines = [
-            f"- [{escape_md(entry.task_name)}]({entry.task_url}) ｜等待反馈:{'是' if entry.waiting else '否'} ｜ID:{escape_md(entry.task_id)}"
-            for entry in entries
-        ]
+        self._tracking_snapshot[chat_id] = [entry.task_id for entry in entries]
+        lines = ["当前跟踪任务："]
+        for idx, entry in enumerate(entries, start=1):
+            status = "等待反馈" if entry.waiting else "计时中"
+            lines.append(
+                f"{idx}. [{escape_md(entry.task_name)}]({entry.task_url}) ｜状态:{status}"
+            )
+        lines.append("使用 `/untrack <序号>` 取消对应的任务。")
         self._send_message(chat_id, "\n".join(lines))
 
     def _handle_update(self, chat_id: int) -> None:

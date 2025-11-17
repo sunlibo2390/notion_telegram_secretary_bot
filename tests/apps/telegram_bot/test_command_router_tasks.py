@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import List, Optional
 
 from apps.telegram_bot.handlers.commands import CommandRouter
@@ -53,7 +54,43 @@ class FakeTaskRepo:
         return task_id in self.custom_ids
 
 
-def _build_router(tmp_path):
+@dataclass
+class DummyTrackingEntry:
+    task_id: str
+    task_name: str
+    task_url: str = "https://www.notion.so/test"
+    waiting: bool = False
+
+
+class DummyTracker:
+    def __init__(self, entries: Optional[List[DummyTrackingEntry]] = None):
+        self.entries = entries or []
+        self.last_stop: Optional[str] = None
+
+    def list_active(self, chat_id: int) -> List[DummyTrackingEntry]:
+        return list(self.entries)
+
+    def stop_tracking(self, chat_id: int, task_hint: Optional[str] = None):
+        if not self.entries:
+            return None
+        if task_hint:
+            lowered = task_hint.lower()
+            for idx, entry in enumerate(self.entries):
+                if entry.task_id == task_hint or lowered in entry.task_name.lower():
+                    self.last_stop = entry.task_id
+                    return self.entries.pop(idx)
+            return None
+        if len(self.entries) == 1:
+            entry = self.entries.pop(0)
+            self.last_stop = entry.task_id
+            return entry
+        return None
+
+    def clear(self, chat_id: int) -> None:
+        self.entries.clear()
+
+
+def _build_router(tmp_path, tracker=None):
     client = DummyClient()
     history = HistoryStore(root_dir=tmp_path / "history")
     tasks = [
@@ -84,6 +121,7 @@ def _build_router(tmp_path):
         client=client,
         history_store=history,
         task_repo=repo,
+        tracker=tracker,
     )
     return router, client, repo
 
@@ -127,3 +165,44 @@ def test_tasks_grouped_by_project(tmp_path):
     assert "实验 ｜任务:1" in text
     assert "主项目 ｜任务:1" in text
     assert text.count("  - ") == 2
+
+
+def test_trackings_outputs_enumerated_list(tmp_path):
+    tracker = DummyTracker(
+        [
+            DummyTrackingEntry(task_id="task-a", task_name="任务A"),
+            DummyTrackingEntry(task_id="task-b", task_name="任务B", waiting=True),
+        ]
+    )
+    router, client, _ = _build_router(tmp_path, tracker=tracker)
+    router._handle_list_trackings(chat_id=1)
+    text = client.messages[-1]["text"]
+    assert "1." in text and "2." in text
+    assert "等待反馈" in text
+    assert router._tracking_snapshot[1] == ["task-a", "task-b"]
+
+
+def test_untrack_accepts_index_from_snapshot(tmp_path):
+    tracker = DummyTracker(
+        [
+            DummyTrackingEntry(task_id="task-a", task_name="任务A"),
+            DummyTrackingEntry(task_id="task-b", task_name="任务B"),
+        ]
+    )
+    router, client, _ = _build_router(tmp_path, tracker=tracker)
+    router._handle_list_trackings(chat_id=1)
+    router._handle_untrack(chat_id=1, text="/untrack 2")
+    assert tracker.last_stop == "task-b"
+    assert "已取消跟踪" in client.messages[-1]["text"]
+
+
+def test_untrack_without_hint_prompts_when_multiple(tmp_path):
+    tracker = DummyTracker(
+        [
+            DummyTrackingEntry(task_id="task-a", task_name="任务A"),
+            DummyTrackingEntry(task_id="task-b", task_name="任务B"),
+        ]
+    )
+    router, client, _ = _build_router(tmp_path, tracker=tracker)
+    router._handle_untrack(chat_id=1, text="/untrack")
+    assert "请先执行 /trackings" in client.messages[-1]["text"]
