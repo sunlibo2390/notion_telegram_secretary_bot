@@ -722,8 +722,11 @@ class CommandRouter:
             lines.append("  · 未启用")
         lines.append("")
         lines.append("⏱️ 时间块：")
-        for block_line in self._build_time_block_lines(chat_id):
-            lines.append(block_line)
+        blocks = self._build_time_block_lines(chat_id)
+        if blocks:
+            lines.extend(blocks)
+        else:
+            lines.append("  · 暂无安排")
         self._send_message(chat_id, "\n".join(lines), markdown=False)
 
     def _handle_proactive_event(self, chat_id: int, event: Dict[str, Any]) -> None:
@@ -832,7 +835,7 @@ class CommandRouter:
             return ["  · 未启用"]
         windows = self._rest_service.list_windows(chat_id, include_past=False)
         if not windows:
-            return ["  · 暂无安排"]
+            return []
         now = datetime.utcnow().replace(tzinfo=timezone.utc)
         lines: List[str] = []
         for window in windows[:5]:
@@ -841,7 +844,8 @@ class CommandRouter:
             start = format_beijing(window.start, "%m-%d %H:%M")
             end = format_beijing(window.end, "%m-%d %H:%M")
             status = "进行中" if window.start <= now <= window.end else "待开始"
-            lines.append(f"    {emoji} {start} ~ {end} \n         {label}｜{status}")
+            status_emoji = "✅" if status == "进行中" else "🕗"
+            lines.append(f"  · {emoji} {start} ~ {end} ｜{label}｜{status_emoji} {status}")
         return lines
 
     @staticmethod
