@@ -459,12 +459,16 @@ class CommandRouter:
                 self._handle_tasks_light(chat_id, limit=limit)
                 return
             if action in {"projects", "project", "byproject", "group"}:
+                light_mode = any(token.lower() == "light" for token in parts[2:])
                 per_project_limit = 5
                 for token in parts[2:]:
                     if token.isdigit():
                         per_project_limit = max(1, min(20, int(token)))
                         break
-                self._handle_tasks_grouped(chat_id, per_project_limit=per_project_limit)
+                if light_mode:
+                    self._handle_tasks_grouped_light(chat_id, per_project_limit=per_project_limit)
+                else:
+                    self._handle_tasks_grouped(chat_id, per_project_limit=per_project_limit)
                 return
         limit = 10
         for token in parts[1:]:
@@ -569,6 +573,42 @@ class CommandRouter:
                 lines.append(f"  - [{name}]({url}) ｜状态:{status} ｜截止:{due_text}")
             lines.append("")
         lines.append(escape_md("提示：使用 /tasks projects [N] 可设置每个项目的展示数量。"))
+        self._send_message(chat_id, "\n".join(lines).strip(), markdown=True)
+
+    def _handle_tasks_grouped_light(self, chat_id: int, per_project_limit: int = 5) -> None:
+        if not self._task_repo:
+            self._send_message(chat_id, escape_md("任务数据不可用。"))
+            return
+        tasks = self._task_repo.list_active_tasks()
+        if not tasks:
+            self._send_message(chat_id, escape_md("当前没有待办任务。"))
+            return
+        def sort_key(task):
+            priority_order = {"Urgent": 0, "High": 1, "Medium": 2, "Low": 3}
+            return (
+                priority_order.get(task.priority, 99),
+                task.due_date or "9999-12-31",
+                task.name.lower(),
+            )
+        groups: Dict[str, List] = {}
+        for task in tasks:
+            project_key = task.project_name.strip() if task.project_name else "未归类"
+            groups.setdefault(project_key, []).append(task)
+        ordered_projects = sorted(
+            groups.items(),
+            key=lambda item: sort_key(min(item[1], key=sort_key)),
+        )
+        lines = ["*按项目分组（精简视图）*"]
+        for idx, (project_name, bucket) in enumerate(ordered_projects, start=1):
+            safe_project = escape_md(project_name or "未归类")
+            lines.append(f"{idx}. {safe_project}")
+            names = [
+                f"  - {escape_md(task.name)}"
+                for task in sorted(bucket, key=sort_key)[:per_project_limit]
+            ]
+            lines.extend(names if names else ["  - （暂无任务）"])
+            lines.append("")
+        lines.append(escape_md("提示：使用 `/tasks group light [N]` 设置每个项目展示数量。"))
         self._send_message(chat_id, "\n".join(lines).strip(), markdown=True)
 
     def _handle_task_delete(self, chat_id: int, text: str) -> None:

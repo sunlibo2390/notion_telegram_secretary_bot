@@ -66,7 +66,7 @@ notion_secretary/
 - **可靠性**：仍采用 `getUpdates` 长轮询。Telegram 只返回用户留言，因此 `TelegramBotClient.send_message` 必须保存响应体用于复原历史。更多细节见 `docs/telegram_architecture.md`.
 - **指令小抄**：
   - `/track <任务ID> [分钟]`：开启任务跟踪；未指定时默认 25 分钟提醒，可按需定制首个提醒间隔。
-  - `/tasks light [N]`：仅展示任务名称与所属项目，便于快速浏览。
+  - `/tasks light [N]` / `/tasks group light [N]`：仅展示任务名称及所属项目（可按项目分组），便于快速浏览。
   - `/trackings`：查看当前会话内正在跟踪的任务（按序号输出，可直接配合 `/untrack <序号>` 操作）。
   - `/untrack [序号/关键词]`：取消某个跟踪任务；若存在多个任务，建议先执行 `/trackings` 后再依据序号操作。
   - `/logs [N]`：查看最近 N 条日志（默认 5，最多 20），便于快速回顾记录。

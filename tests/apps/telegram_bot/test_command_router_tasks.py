@@ -215,6 +215,15 @@ def test_tasks_light_outputs_minimal_list(tmp_path):
     assert "项目：" in text
     assert "状态:" not in text
 
+
+def test_tasks_group_light_outputs_names(tmp_path):
+    router, client, _ = _build_router(tmp_path)
+    router._handle_tasks(chat_id=1, text="/tasks group light 1")
+    text = client.messages[-1]["text"]
+    assert "*按项目分组（精简视图）*" in text
+    assert "Notion 任务" in text
+    assert "状态:" not in text
+
 def test_board_command_alias_of_next(tmp_path):
     router, client, _ = _build_router(tmp_path)
     router._handle_board(chat_id=1)
