@@ -57,7 +57,7 @@ api_version = "2022-06-28"
 [telegram]
 token = "123456:ABCDE"                  # BotFather 获取
 poll_timeout = 25
-admin_ids = [ <telegram user id> ]                  # GetUserID 获取
+admin_ids = [ {telegram user id} ]                  # GetUserID 获取
 
 [llm]
 provider = "openai"
