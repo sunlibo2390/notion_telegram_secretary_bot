@@ -99,6 +99,7 @@ def build_runtime() -> BotRuntime:
         follow_up_seconds=settings.tracker_follow_up,
         rest_service=rest_service,
         user_state=user_state,
+        storage_path=settings.paths.history_dir / "tracker_entries.json",
     )
     session_monitor = TaskSessionMonitor(
         client,

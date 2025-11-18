@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import List, Optional
 
 from apps.telegram_bot.handlers.commands import CommandRouter
@@ -60,6 +61,7 @@ class DummyTrackingEntry:
     task_name: str
     task_url: str = "https://www.notion.so/test"
     waiting: bool = False
+    next_fire_at: Any = datetime(2099, 1, 1, 0, 0, 0)
 
 
 class DummyTracker:
@@ -179,6 +181,7 @@ def test_trackings_outputs_enumerated_list(tmp_path):
     text = client.messages[-1]["text"]
     assert "1." in text and "2." in text
     assert "等待反馈" in text
+    assert "下一次" in text
     assert router._tracking_snapshot[1] == ["task-a", "task-b"]
 
 
@@ -214,6 +217,7 @@ def test_tasks_light_outputs_minimal_list(tmp_path):
     text = client.messages[-1]["text"]
     assert "项目：" in text
     assert "状态:" not in text
+    assert "[自建任务]" not in text
 
 
 def test_tasks_group_light_outputs_names(tmp_path):

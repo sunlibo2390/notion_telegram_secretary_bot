@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import string
 from datetime import datetime, timezone
+import threading
 from typing import Any, Dict, List, Optional
 from types import SimpleNamespace
 
@@ -201,9 +202,9 @@ class CommandRouter:
         lines = ["当前跟踪任务："]
         for idx, entry in enumerate(entries, start=1):
             status = "等待反馈" if entry.waiting else "计时中"
-            lines.append(
-                f"{idx}. [{escape_md(entry.task_name)}]({entry.task_url}) ｜状态:{status}"
-            )
+            due_text = self._format_due(entry.next_fire_at.isoformat())
+            link = self._format_task_link_text(entry)
+            lines.append(f"{idx}. {link} ｜状态:{status} ｜下一次:{due_text}")
         lines.append("使用 `/untrack <序号>` 取消对应的任务。")
         self._send_message(chat_id, "\n".join(lines))
 
@@ -211,16 +212,19 @@ class CommandRouter:
         if not self._notion_sync:
             self._send_message(chat_id, escape_md("Notion 同步未配置。"))
             return
-        self._send_message(chat_id, escape_md("正在从 Notion 拉取最新任务与日志..."))
+        self._send_message(chat_id, escape_md("正在后台同步 Notion 数据，完成后会告知你。"))
 
-        def _progress(message: str) -> None:
-            self._send_message(chat_id, escape_md(message))
+        def _run_sync() -> None:
+            def _progress(message: str) -> None:
+                self._send_message(chat_id, escape_md(message))
 
-        result = self._notion_sync.sync(
-            actor=f"command:{chat_id}", force=True, progress_callback=_progress
-        )
-        prefix = "✅" if result.success else "⚠️"
-        self._send_message(chat_id, f"{prefix} {result.message}", markdown=False)
+            result = self._notion_sync.sync(
+                actor=f"command:{chat_id}", force=True, progress_callback=_progress
+            )
+            prefix = "✅" if result.success else "⚠️"
+            self._send_message(chat_id, f"{prefix} {result.message}", markdown=False)
+
+        threading.Thread(target=_run_sync, name=f"update-{chat_id}", daemon=True).start()
 
     def _handle_logs(self, chat_id: int, text: str) -> None:
         if not self._log_repo:
@@ -257,7 +261,7 @@ class CommandRouter:
         self._log_snapshot[chat_id] = [entry.id for entry in display_entries]
         lines: List[str] = []
         for idx, entry in enumerate(display_entries, start=1):
-            task_label = self._format_task_label(entry)
+            task_label = self._format_task_link_text(entry)
             lines.append(f"{idx}. {escape_md(entry.name)} ｜任务:{task_label}")
             content_lines = [line.strip() for line in entry.content.splitlines() if line.strip()]
             if not content_lines:
@@ -266,8 +270,8 @@ class CommandRouter:
                 for line in content_lines:
                     lines.append(f"  · {escape_md(line)}")
             lines.append("")
-        lines.append(escape_md("如需操作：/logs delete <序号> 或 /logs update <序号> <新内容>"))
-        self._send_message(chat_id, "\n".join(lines), markdown=True)
+        lines.append("如需操作：/logs delete <序号> 或 /logs delete <序号1> <序号2> ... 或 /logs update <序号> <新内容>")
+        self._send_message(chat_id, "\n".join(lines), markdown=False)
 
     def _render_logs_grouped(self, chat_id: int, logs: List, limit: int, per_task_limit: int = 3) -> None:
         groups: List[Dict[str, Any]] = []
@@ -297,7 +301,7 @@ class CommandRouter:
                 task_id=group["task_id"],
                 task_url=group["task_url"],
             )
-            task_label = self._format_task_label(stub)
+            task_label = self._format_task_link_text(stub)
             lines.append(f"{idx}. {task_label} ｜最近记录 {len(group['logs'])} 条")
             for log_entry in group["logs"]:
                 content_lines = [line.strip() for line in log_entry.content.splitlines() if line.strip()]
@@ -306,35 +310,46 @@ class CommandRouter:
                 for extra in content_lines[1:]:
                     lines.append(f"    {escape_md(extra)}")
             lines.append("")
-        lines.append(escape_md("提示：使用 /logs tasks [N] 可按任务归并，默认每个任务展示 3 条。"))
-        self._send_message(chat_id, "\n".join(lines), markdown=True)
+        lines.append("提示：使用 /logs tasks [N] 可按任务归并，默认每个任务展示 3 条。")
+        self._send_message(chat_id, "\n".join(lines), markdown=False)
 
     def _handle_delete_log(self, chat_id: int, text: str, logs: list) -> None:
         snapshot = self._log_snapshot.get(chat_id)
         if not snapshot:
             self._send_message(chat_id, escape_md("请先使用 /logs 查看当前列表，再执行删除。"))
             return
-        index = self._extract_index(text)
-        if index is None:
-            self._send_message(chat_id, escape_md("用法：/logs delete 序号"))
+        indices = self._extract_indices(text)
+        if not indices:
+            self._send_message(chat_id, escape_md("用法：/logs delete 序号 [序号2 ...]"))
             return
-        if index < 1 or index > len(snapshot):
-            self._send_message(chat_id, escape_md("序号超出范围，请重新查看 /logs。"))
+        invalid = [idx for idx in indices if idx < 1 or idx > len(snapshot)]
+        if invalid:
+            self._send_message(chat_id, escape_md("部分序号超出范围，请重新查看 /logs。"))
             return
-        target_id = snapshot[index - 1]
-        target = next((entry for entry in logs if entry.id == target_id), None)
-        if not target:
-            self._send_message(chat_id, escape_md("未找到该日志，请重新查看 /logs。"))
+        deleted = []
+        remaining_snapshot = snapshot[:]
+        for index in sorted(indices, reverse=True):
+            target_id = snapshot[index - 1]
+            target = next((entry for entry in logs if entry.id == target_id), None)
+            if not target:
+                continue
+            success = self._log_repo.delete_log(target.id) if self._log_repo else False
+            if success:
+                deleted.append(target)
+                remaining_snapshot.pop(index - 1)
+        self._log_snapshot[chat_id] = remaining_snapshot
+        if not deleted:
+            self._send_message(chat_id, escape_md("删除失败，未找到指定日志。"))
             return
-        success = self._log_repo.delete_log(target.id) if self._log_repo else False
-        if success:
-            self._log_snapshot[chat_id] = [log_id for log_id in snapshot if log_id != target_id]
-            self._send_message(
-                chat_id,
-                escape_md(f"已删除日志：{target.name} ｜任务:{target.task_name or target.task_id or '未关联'}"),
-            )
-        else:
-            self._send_message(chat_id, escape_md("删除失败，未找到该日志。"))
+        summary_lines = [
+            f"· {escape_md(entry.name)} ｜任务:{escape_md(entry.task_name or entry.task_id or '未关联')}"
+            for entry in deleted
+        ]
+        self._send_message(
+            chat_id,
+            "已删除以下日志：\n" + "\n".join(summary_lines),
+            markdown=True,
+        )
 
     def _handle_update_log(self, chat_id: int, text: str, logs: list) -> None:
         snapshot = self._log_snapshot.get(chat_id)
@@ -491,13 +506,12 @@ class CommandRouter:
         self._task_snapshot[chat_id] = [task.id for task in sorted_tasks]
         lines: List[str] = []
         for idx, task in enumerate(sorted_tasks, start=1):
-            url = task.page_url or f"https://www.notion.so/{task.id.replace('-', '')}"
-            name = escape_md(task.name)
+            display_name = self._format_task_link_text(task)
             priority = escape_md(task.priority or "Unknown")
             status = escape_md(task.status or "Unknown")
             due_text = self._format_due(task.due_date)
             project = escape_md(task.project_name or "")
-            lines.append(f"{idx}. [{name}]({url}) ｜状态:{status} ｜优先级:{priority} ｜截止:{due_text}")
+            lines.append(f"{idx}. {display_name} ｜状态:{status} ｜优先级:{priority} ｜截止:{due_text}")
             if project:
                 lines.append(f"  项目：{project}")
             # snippet = (task.content or "").strip()
@@ -534,7 +548,10 @@ class CommandRouter:
             url = task.page_url or f"https://www.notion.so/{task.id.replace('-', '')}"
             name = escape_md(task.name)
             project = escape_md(task.project_name or "未归类")
-            lines.append(f"{idx}. [{name}]({url})")
+            if task.page_url:
+                lines.append(f"{idx}. [{name}]({url})")
+            else:
+                lines.append(f"{idx}. {name}")
             lines.append(f"   项目：{project}")
         self._send_message(chat_id, "\n".join(lines).strip(), markdown=True)
 
@@ -617,24 +634,42 @@ class CommandRouter:
         if not snapshot:
             self._send_message(chat_id, escape_md("请先使用 /tasks 查看列表，再执行删除。"))
             return
-        match = re.search(r"/tasks\s+delete\s+(\d+)", text, flags=re.IGNORECASE)
-        if not match:
-            self._send_message(chat_id, escape_md("用法：/tasks delete 序号"))
+        indices = self._extract_indices(text)
+        if not indices:
+            self._send_message(chat_id, escape_md("用法：/tasks delete 序号 [序号2 ...]"))
             return
-        index = int(match.group(1))
-        if index < 1 or index > len(snapshot):
-            self._send_message(chat_id, escape_md("序号超出范围，请重新 /tasks 查看。"))
+        invalid = [idx for idx in indices if idx < 1 or idx > len(snapshot)]
+        if invalid:
+            self._send_message(chat_id, escape_md("部分序号超出范围，请重新 /tasks 查看。"))
             return
-        task_id = snapshot[index - 1]
-        if not self._task_repo.is_custom_task(task_id):
-            self._send_message(chat_id, escape_md("该任务来自 Notion，暂不支持直接删除。"))
+        deleted: List[str] = []
+        skipped: List[str] = []
+        remaining = snapshot[:]
+        for index in sorted(set(indices), reverse=True):
+            task_id = snapshot[index - 1]
+            task = self._task_repo.get_task(task_id)
+            label = escape_md(task.name if task else task_id)
+            if not self._task_repo.is_custom_task(task_id):
+                skipped.append(f"{index}. {label}（Notion 任务）")
+                continue
+            success = self._task_repo.delete_custom_task(task_id)
+            if success:
+                deleted.append(f"{index}. {label}")
+                remaining.pop(index - 1)
+            else:
+                skipped.append(f"{index}. {label}（未找到）")
+        self._task_snapshot[chat_id] = remaining
+        if not deleted and not skipped:
+            self._send_message(chat_id, escape_md("未能删除任何任务。"))
             return
-        success = self._task_repo.delete_custom_task(task_id)
-        if success:
-            self._task_snapshot[chat_id] = [tid for tid in snapshot if tid != task_id]
-            self._send_message(chat_id, escape_md("已删除该自建任务。"))
-        else:
-            self._send_message(chat_id, escape_md("删除失败，未找到该自建任务。"))
+        lines: List[str] = []
+        if deleted:
+            lines.append("已删除以下自建任务：")
+            lines.extend(f"- {item}" for item in deleted)
+        if skipped:
+            lines.append("未删除的条目：")
+            lines.extend(f"- {item}" for item in skipped)
+        self._send_message(chat_id, "\n".join(lines), markdown=False)
 
     def _handle_task_update(self, chat_id: int, text: str) -> None:
         snapshot = self._task_snapshot.get(chat_id)
@@ -839,11 +874,12 @@ class CommandRouter:
             self._proactivity.record_agent_message(chat_id, text)
 
     @staticmethod
-    def _extract_index(text: str) -> Optional[int]:
+    def _extract_indices(text: str) -> List[int]:
+        indices: List[int] = []
         for token in text.split():
             if token.isdigit():
-                return int(token)
-        return None
+                indices.append(int(token))
+        return indices
 
     @staticmethod
     def _extract_task_from_text(text: str) -> tuple[Optional[str], str]:
@@ -859,15 +895,10 @@ class CommandRouter:
         return None, text.strip()
 
     @staticmethod
-    def _format_task_label(entry) -> str:
-        task_label = escape_md(entry.task_name or entry.task_id or "未关联")
-        url = getattr(entry, "task_url", None)
-        task_id = getattr(entry, "task_id", None)
-        if not url and task_id:
-            clean_id = task_id.replace("-", "")
-            if len(clean_id) == 32 and all(ch in string.hexdigits for ch in clean_id):
-                url = f"https://www.notion.so/{clean_id}"
-        if url:
+    def _format_task_link_text(obj) -> str:
+        task_label = escape_md(getattr(obj, "task_name", None) or getattr(obj, "name", None) or getattr(obj, "task_id", None) or "未关联")
+        url = getattr(obj, "task_url", None) or getattr(obj, "page_url", None)
+        if url and "notion.so" in url:
             return f"[{task_label}]({url})"
         return task_label
 

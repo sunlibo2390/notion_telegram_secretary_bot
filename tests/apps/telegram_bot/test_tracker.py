@@ -98,3 +98,30 @@ def test_consume_reply_matches_waiting_entry_by_name():
     timers[0].fire()
     assert tracker.consume_reply(1, "任务A 已完成，继续新的目标。")
     assert tracker.list_active(1) == []
+
+
+def test_tracker_persistence_across_instances(tmp_path):
+    storage = tmp_path / "tracker.json"
+    client = DummyClient()
+    timers: List[FakeTimer] = []
+    tracker = TaskTracker(
+        client,
+        timer_factory=_build_timer_factory(timers),
+        storage_path=storage,
+        follow_up_seconds=60,
+    )
+    task = make_task("task-a", "任务A")
+    tracker.start_tracking(1, task, interval_minutes=10, notify_user=False)
+    assert storage.exists()
+
+    # Recreate tracker and ensure entries reloaded
+    new_timers: List[FakeTimer] = []
+    tracker_reloaded = TaskTracker(
+        client,
+        timer_factory=_build_timer_factory(new_timers),
+        storage_path=storage,
+        follow_up_seconds=60,
+    )
+    entries = tracker_reloaded.list_active(1)
+    assert len(entries) == 1
+    assert entries[0].task_id == "task-a"
