@@ -70,7 +70,7 @@ notion_secretary/
   - `/trackings`：查看当前会话内正在跟踪的任务（按序号输出，可直接配合 `/untrack <序号>` 操作）。
   - `/untrack [序号/关键词]`：取消某个跟踪任务；若存在多个任务，建议先执行 `/trackings` 后再依据序号操作。
   - `/logs [N]`：查看最近 N 条日志（默认 5，最多 20），便于快速回顾记录。
-  - `/logs delete <序号>`：在查看日志后，可按显示的序号删除对应记录。
+  - `/logs delete <序号...>`：在查看日志后，可删除一个或多个序号对应的日志。
   - `/state` / `/next`：查看当前记录的行动/心理状态以及下一次主动提醒的预计时间（含跟踪任务、状态检查）。
   - `/board`：与 `/next` 相同的全局状态看板。
   - `/logs update <序号> <内容>`：更新指定日志的内容（可附 `任务 XXX：...` 自动重绑任务）。
@@ -95,6 +95,7 @@ notion_secretary/
 | `notion.api_version` | Notion API 版本号，默认 `2022-06-28` |
 | `paths.data_dir` | Raw/processed/telegram_history 数据根目录 |
 | `paths.database_ids_path` | `database_ids.json` 所在路径 |
+| `general.timezone_offset_hours` | 运行时使用的本地时区（小时偏移，默认 8 表示 UTC+8） |
 | `telegram.token` | Telegram Bot Token |
 | `telegram.admin_ids` | 可使用管理命令的用户 ID |
 | `telegram.poll_timeout` | `getUpdates` 长轮询的超时时间 |

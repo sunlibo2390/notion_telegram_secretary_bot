@@ -4,3 +4,11 @@ __pycache__/
 databases/
 logs/
 *.log
+config/settings.toml
+config/settings.local.toml
+docs/user_profile*.md
+docs/user_profile*.txt
+databases/
+databases/**
+tracker_entries.json
+history.json

@@ -21,6 +21,7 @@
    - `[notion] api_key`: 在 Notion 集成后台生成，需具备读取目标数据库的权限。
    - `[notion] sync_interval`: 数据同步间隔（秒）。
    - `[paths] data_dir`: 存放 `raw_json/`, `json/`, `telegram_history/` 等文件的目录。
+   - `[general] timezone_offset_hours`: 运行时使用的本地时区（小时偏移，默认 8=UTC+8）。
    - `[telegram] token`: 通过 @BotFather 创建 Bot 后获得。
    - `[telegram] admin_ids`: Telegram 数字 ID，可在 @userinfobot 查询。
    - `[llm] provider/base_url/model/api_key/temperature`: 指定 OpenAI 或兼容服务以及模型（如 `gpt-4o-mini`），温度控制秘书语气。
@@ -74,7 +75,9 @@
 | `#log <内容>` | 快速记录日志。可追加 `task=<任务ID>` 绑定到指定任务。 |
 | `/trackings` | 按序号展示当前跟踪任务，可搭配 `/untrack`。 |
 | `/untrack [序号/关键词]` | 取消对应的跟踪任务；先查看 `/trackings` 获得序号后更方便。 |
+| `/logs delete <序号...>` | 删除最近一次 `/logs` 输出中的一个或多个日志。 |
 | `/board` | 与 `/next` 相同的全局状态看板。 |
+| `/logs delete <序号...>` | 删除最近一次 `/logs` 输出中的一个或多个日志。 |
 | 自由文本 | 暂未引入复杂多轮，非指令输入会提示可用命令。 |
 
 系统典型场景：

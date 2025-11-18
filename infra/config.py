@@ -73,6 +73,7 @@ class Settings:
     tracker_interval: int
     tracker_follow_up: int
     proactivity: ProactivitySettings
+    timezone_offset_hours: int
 
 
 def _default_root() -> Path:
@@ -236,6 +237,12 @@ def load_settings(
         ),
     )
 
+    general_cfg = config.get("general", {})
+    timezone_offset = int(
+        general_cfg.get("timezone_offset_hours")
+        or os.getenv("TIMEZONE_OFFSET_HOURS", "8")
+    )
+
     settings = Settings(
         telegram=telegram_settings,
         paths=PathsSettings(
@@ -257,5 +264,12 @@ def load_settings(
         tracker_interval=tracker_interval,
         tracker_follow_up=tracker_follow_up,
         proactivity=proactivity_settings,
+        timezone_offset_hours=timezone_offset,
     )
+    try:
+        from core.utils import timezone as tz
+
+        tz.configure_timezone(timezone_offset)
+    except Exception:
+        pass
     return settings

@@ -1,3 +1,6 @@
+[general]
+timezone_offset_hours = 8
+
 [paths]
 data_dir = "D:/Projects/codex_test/notion_secretary/databases"
 database_ids_path = "database_ids.json"

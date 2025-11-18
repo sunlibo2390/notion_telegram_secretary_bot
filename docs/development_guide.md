@@ -1,6 +1,6 @@
 # Development Guide
 
-围绕 Telegram long-polling Bot 与 Notion 数据同步，本文在 README 的基础上细化接口契约、场景流程、配置与测试策略，方便多角色协作。
+围绕 Telegram long-polling Bot 与 Notion 数据同步，本文在 README 的基础上细化接口契约、场景流程、配置与测试策略，方便多角色协作。如果你需要先了解整体架构、数据流和运行约束，请先阅读 `docs/developer_overview.md`，再回到本文查看各模块的契约细节。
 
 ## 1. 接口契约
 
